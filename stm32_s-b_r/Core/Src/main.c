@@ -99,7 +99,7 @@ int main(void)
 
 
   uint8_t WHO_AM_I_A_reg = 0x75;
-  uint8_t ACC_I2C_ADDR = 0b110100 << 1;
+  uint8_t ACC_I2C_ADDR = 0b1101000 << 1;
   uint8_t bytes_to_receive = 1;
 
   HAL_I2C_Mem_Read(&hi2c1, ACC_I2C_ADDR, WHO_AM_I_A_reg, 1, i2c_receive_buf, bytes_to_receive, 50);
