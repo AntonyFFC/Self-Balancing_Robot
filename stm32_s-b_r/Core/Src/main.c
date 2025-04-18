@@ -24,7 +24,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <math.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -106,6 +107,21 @@ int main(void)
 
   printf("WHO_AM_I_A: 0x%02X \n", i2c_receive_buf[0]);
 
+  uint8_t PWR_MGMT_1_reg = 0x6B;
+  i2c_transmit_buf[0] = 0b00000000;
+  HAL_I2C_Mem_Write(&hi2c1, ACC_I2C_ADDR, PWR_MGMT_1_reg, 1, i2c_transmit_buf, 1, 50);
+
+  uint8_t SMPRT_DIV_reg = 0x19;
+  i2c_transmit_buf[0] = 0x07;
+  HAL_I2C_Mem_Write(&hi2c1, ACC_I2C_ADDR, SMPRT_DIV_reg, 1, i2c_transmit_buf, 1, 50);
+
+  uint8_t GYRO_CONFIG_reg = 0x1B;
+  i2c_transmit_buf[0] = 0x00;
+  HAL_I2C_Mem_Write(&hi2c1, ACC_I2C_ADDR, GYRO_CONFIG_reg, 1, i2c_transmit_buf, 1, 50);
+
+  uint8_t ACCEL_CONFIG_reg = 0x1C;
+  HAL_I2C_Mem_Write(&hi2c1, ACC_I2C_ADDR, ACCEL_CONFIG_reg, 1, i2c_transmit_buf, 1, 50);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -114,8 +130,28 @@ int main(void)
   HAL_GPIO_WritePin(IN4_GPIO_Port, IN4_Pin, 1);
   HAL_GPIO_WritePin(IN1_GPIO_Port, IN1_Pin, 0);
   HAL_GPIO_WritePin(IN2_GPIO_Port, IN2_Pin, 1);
+
+  int16_t x,y,z;
+  float xf, yf, zf;
+  float wspolczynnik = 2;
+  int16_t i2c_receive16bit_buf[3];
+  uint8_t SAMPLES_START_REG = 0x3B;
+  bytes_to_receive = 6;
+
   while (1)
   {
+	  HAL_I2C_Mem_Read(&hi2c1, ACC_I2C_ADDR, SAMPLES_START_REG,1, i2c_receive16bit_buf, bytes_to_receive, 50);
+	  x = i2c_receive16bit_buf[0];
+	  y = i2c_receive16bit_buf[1];
+	  z = i2c_receive16bit_buf[2];
+
+	  xf = (float)x/pow(2,15)*wspolczynnik;
+	  yf = (float)y/pow(2,15)*wspolczynnik;
+	  zf = (float)z/pow(2,15)*wspolczynnik;
+
+//			printf("x: %5d, y: %5d, z: %5d\n",x,y,z);
+	  printf("xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",xf,yf,zf);
+	  HAL_Delay(100);
 
     /* USER CODE END WHILE */
 
