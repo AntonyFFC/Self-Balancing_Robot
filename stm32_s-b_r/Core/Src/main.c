@@ -134,13 +134,17 @@ int main(void)
   int16_t x,y,z;
   float xf, yf, zf;
   float wspolczynnik = 2;
+  uint8_t i2c_receive8bit_buf[6];
   int16_t i2c_receive16bit_buf[3];
   uint8_t SAMPLES_START_REG = 0x3B;
   bytes_to_receive = 6;
 
   while (1)
   {
-	  HAL_I2C_Mem_Read(&hi2c1, ACC_I2C_ADDR, SAMPLES_START_REG,1, i2c_receive16bit_buf, bytes_to_receive, 50);
+	  HAL_I2C_Mem_Read(&hi2c1, ACC_I2C_ADDR, SAMPLES_START_REG,1, i2c_receive8bit_buf, bytes_to_receive, 10);
+	  i2c_receive16bit_buf[0] = (int16_t)(i2c_receive8bit_buf[0]<<8 | i2c_receive8bit_buf[1]);
+	  i2c_receive16bit_buf[1] = (int16_t)(i2c_receive8bit_buf[2]<<8 | i2c_receive8bit_buf[3]);
+	  i2c_receive16bit_buf[2] = (int16_t)(i2c_receive8bit_buf[4]<<8 | i2c_receive8bit_buf[5]);
 	  x = i2c_receive16bit_buf[0];
 	  y = i2c_receive16bit_buf[1];
 	  z = i2c_receive16bit_buf[2];
@@ -151,7 +155,6 @@ int main(void)
 
 //			printf("x: %5d, y: %5d, z: %5d\n",x,y,z);
 	  printf("xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",xf,yf,zf);
-	  HAL_Delay(100);
 
     /* USER CODE END WHILE */
 
