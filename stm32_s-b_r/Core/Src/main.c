@@ -42,6 +42,7 @@
 /* USER CODE BEGIN PM */
 #define ACC_I2C_ADDR 0b1101000 << 1
 #define ACCEL_START_REG 0x3B
+#define GYRO_START_REG 0x43
 #define WHO_AM_I_REG 0x75
 /* USER CODE END PM */
 
@@ -59,22 +60,32 @@ extern void initialise_monitor_handles(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void readAccelerometer(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z)
+void read3dData(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z, float rangeFactor, uint8_t startReg)
 {
 	  int16_t rawX,rawY,rawZ;
-	  float wspolczynnik = 2;
 	  uint8_t i2c_receive8bit_buf[6];
 	  uint8_t bytes_to_receive = 6;
 
-	  HAL_I2C_Mem_Read(hi2c, ACC_I2C_ADDR, ACCEL_START_REG,1, i2c_receive8bit_buf, bytes_to_receive, 10);
+	  HAL_I2C_Mem_Read(hi2c, ACC_I2C_ADDR, startReg,1, i2c_receive8bit_buf, bytes_to_receive, 10);
 	  rawX = (int16_t)(i2c_receive8bit_buf[0]<<8 | i2c_receive8bit_buf[1]);
 	  rawY = (int16_t)(i2c_receive8bit_buf[2]<<8 | i2c_receive8bit_buf[3]);
 	  rawZ = (int16_t)(i2c_receive8bit_buf[4]<<8 | i2c_receive8bit_buf[5]);
 
-	  *x = (float)rawX/pow(2,15)*wspolczynnik;
-	  *y = (float)rawY/pow(2,15)*wspolczynnik;
-	  *z = (float)rawZ/pow(2,15)*wspolczynnik;
+	  *x = (float)rawX/pow(2,15)*rangeFactor;
+	  *y = (float)rawY/pow(2,15)*rangeFactor;
+	  *z = (float)rawZ/pow(2,15)*rangeFactor;
+}
 
+void readAccelerometer(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z)
+{
+	  float wspolczynnik = 2;
+	  read3dData(hi2c, x, y, z, wspolczynnik, ACCEL_START_REG);
+}
+
+void readGyroscope(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z)
+{
+	float wspolczynnik = 250.0f;
+	read3dData(hi2c, x, y, z, wspolczynnik, GYRO_START_REG);
 }
 /* USER CODE END 0 */
 
@@ -146,14 +157,18 @@ int main(void)
   HAL_GPIO_WritePin(IN1_GPIO_Port, IN1_Pin, 0);
   HAL_GPIO_WritePin(IN2_GPIO_Port, IN2_Pin, 1);
 
-  float xf, yf, zf;
+  float accxf, accyf, acczf;
+  float gyroxf, gyroyf, gyrozf;
 
   while (1)
   {
-	  readAccelerometer(&hi2c1, &xf, &yf, &zf);
+	  readAccelerometer(&hi2c1, &accxf, &accyf, &acczf);
+	  readGyroscope(&hi2c1, &gyroxf, &gyroyf, &gyrozf);
+
 
 //			printf("x: %5d, y: %5d, z: %5d\n",x,y,z);
-	  printf("xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",xf,yf,zf);
+	  printf("ACCEL xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",accxf,accyf,acczf);
+	  printf("GYRO xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",gyroxf,gyroyf,gyrozf);
 
     /* USER CODE END WHILE */
 
