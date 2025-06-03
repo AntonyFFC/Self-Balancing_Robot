@@ -95,19 +95,49 @@ void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float 
 	*pitch = alpha * (*pitch + gx * dt) + (1.0f-alpha) * acc_pitch;
 }
 
+float PID(float y, float yzad){
+	const float Tp = 0.01f; //czas próbkowania
+	const float K =  2.5f;
+	const float Ti = 900000.0f;
+	const float Td = 0.0f;
+
+	static float u =  0.0f;
+
+	//bledy:
+	static float e = 0.0f;
+	static float e_1 = 0.0f;
+	static float e_2 = 0.0f;
+
+	const float r2 = (K*Td)/Tp;
+	const float r1 = K*((Tp/(2*Ti))-(2*Td/Tp)-1);
+	const float r0 = K*(1+(Tp/(2*Ti))+(Td/Tp));
+
+	//aktualizacja bledow:
+	e_2 = e_1;
+	e_1 = e;
+	e = yzad - y;
+
+	u = r2*e_2 + r1*e_1 + r0*e + u;
+	return u;
+}
+
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance == TIM3){
 		const float dt = 0.01f;
 		float accxf, accyf, acczf;
 		float gyroxf, gyroyf, gyrozf;
-		static float pitch = 0.0f;
+		static float pitch = 0.0f, setPitch = 0.0f, u;
 		const float gyroXoffset = -4.58500671;
 
 		readAccelerometer(&hi2c1, &accxf, &accyf, &acczf);
 		readGyroscope(&hi2c1, &gyroxf, &gyroyf, &gyrozf);
 		calculatePitch(&pitch, accxf, accyf, acczf, gyroxf-gyroXoffset, dt);
 
-		printf("Pitch %3.2f degrees\n",pitch);
+		u = PID(pitch, setPitch);
+		printf("Control signal: %3.2f \n", u);
+
+//		printf("Pitch %3.2f degrees\n",pitch);
 
 	}
 }
