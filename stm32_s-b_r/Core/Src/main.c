@@ -64,7 +64,7 @@ void read3dData(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z, float ran
 {
 	  int16_t rawX,rawY,rawZ;
 	  uint8_t i2c_receive8bit_buf[6];
-	  uint8_t bytes_to_receive = 6;
+	  const uint8_t bytes_to_receive = 6;
 
 	  HAL_I2C_Mem_Read(hi2c, ACC_I2C_ADDR, startReg,1, i2c_receive8bit_buf, bytes_to_receive, 10);
 	  rawX = (int16_t)(i2c_receive8bit_buf[0]<<8 | i2c_receive8bit_buf[1]);
@@ -78,21 +78,38 @@ void read3dData(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z, float ran
 
 void readAccelerometer(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z)
 {
-	  float wspolczynnik = 2;
+	  const float wspolczynnik = 2;
 	  read3dData(hi2c, x, y, z, wspolczynnik, ACCEL_START_REG);
 }
 
 void readGyroscope(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z)
 {
-	float wspolczynnik = 250.0f;
+	const float wspolczynnik = 250.0f;
 	read3dData(hi2c, x, y, z, wspolczynnik, GYRO_START_REG);
 }
 
 void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float dt)
 {
-	float alpha = 0.95;
+	const float alpha = 0.95;
 	float acc_pitch = atan2(ax, sqrt(ay*ay+az*az)) * 180.0 / M_PI;
 	*pitch = alpha * (*pitch + gx * dt) + (1.0f-alpha) * acc_pitch;
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+	if(htim->Instance == TIM3){
+		const float dt = 0.01f;
+		float accxf, accyf, acczf;
+		float gyroxf, gyroyf, gyrozf;
+		static float pitch = 0.0f;
+		const float gyroXoffset = -4.58500671;
+
+		readAccelerometer(&hi2c1, &accxf, &accyf, &acczf);
+		readGyroscope(&hi2c1, &gyroxf, &gyroyf, &gyrozf);
+		calculatePitch(&pitch, accxf, accyf, acczf, gyroxf-gyroXoffset, dt);
+
+		printf("Pitch %3.2f degrees\n",pitch);
+
+	}
 }
 /* USER CODE END 0 */
 
@@ -127,10 +144,14 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM2_Init();
   MX_I2C1_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   initialise_monitor_handles();
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_Base_Start_IT(&htim3);
+  HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(TIM3_IRQn);
 
   uint8_t i2c_receive_buf[6];
   uint8_t i2c_transmit_buf[6];
@@ -164,25 +185,11 @@ int main(void)
   HAL_GPIO_WritePin(IN1_GPIO_Port, IN1_Pin, 0);
   HAL_GPIO_WritePin(IN2_GPIO_Port, IN2_Pin, 1);
 
-  float accxf, accyf, acczf;
-  float gyroxf, gyroyf, gyrozf;
-  float pitch;
 
-  float gyroXoffset = -4.58500671;
-
-  uint32_t prev_time = HAL_GetTick();
 
   while (1)
   {
-	  readAccelerometer(&hi2c1, &accxf, &accyf, &acczf);
-	  readGyroscope(&hi2c1, &gyroxf, &gyroyf, &gyrozf);
 
-	  uint32_t now = HAL_GetTick();
-	  float dt = (now - prev_time) / 1000.0f;
-	  prev_time = now;
-	  calculatePitch(&pitch, accxf, accyf, acczf, gyroxf-gyroXoffset, dt);
-
-	  printf("Pitch %3.2f degrees\n",pitch);
 
 //	  printf("ACCEL xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",accxf,accyf,acczf);
 //	  printf("GYRO xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",gyroxf,gyroyf,gyrozf);
@@ -190,7 +197,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  HAL_Delay(10);
+
   }
   /* USER CODE END 3 */
 }
