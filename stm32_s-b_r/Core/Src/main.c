@@ -87,6 +87,13 @@ void readGyroscope(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z)
 	float wspolczynnik = 250.0f;
 	read3dData(hi2c, x, y, z, wspolczynnik, GYRO_START_REG);
 }
+
+void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float dt)
+{
+	float alpha = 0.95;
+	float acc_pitch = atan2(ax, sqrt(ay*ay+az*az)) * 180.0 / M_PI;
+	*pitch = alpha * (*pitch + gx * dt) + (1.0f-alpha) * acc_pitch;
+}
 /* USER CODE END 0 */
 
 /**
@@ -159,20 +166,31 @@ int main(void)
 
   float accxf, accyf, acczf;
   float gyroxf, gyroyf, gyrozf;
+  float pitch;
+
+  float gyroXoffset = -4.58500671;
+
+  uint32_t prev_time = HAL_GetTick();
 
   while (1)
   {
 	  readAccelerometer(&hi2c1, &accxf, &accyf, &acczf);
 	  readGyroscope(&hi2c1, &gyroxf, &gyroyf, &gyrozf);
 
+	  uint32_t now = HAL_GetTick();
+	  float dt = (now - prev_time) / 1000.0f;
+	  prev_time = now;
+	  calculatePitch(&pitch, accxf, accyf, acczf, gyroxf-gyroXoffset, dt);
 
-//			printf("x: %5d, y: %5d, z: %5d\n",x,y,z);
-	  printf("ACCEL xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",accxf,accyf,acczf);
-	  printf("GYRO xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",gyroxf,gyroyf,gyrozf);
+	  printf("Pitch %3.2f degrees\n",pitch);
+
+//	  printf("ACCEL xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",accxf,accyf,acczf);
+//	  printf("GYRO xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",gyroxf,gyroyf,gyrozf);
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  HAL_Delay(10);
   }
   /* USER CODE END 3 */
 }
