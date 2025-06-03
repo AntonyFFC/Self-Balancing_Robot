@@ -40,7 +40,9 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+#define ACC_I2C_ADDR 0b1101000 << 1
+#define ACCEL_START_REG 0x3B
+#define WHO_AM_I_REG 0x75
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -57,7 +59,23 @@ extern void initialise_monitor_handles(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void readAccelerometer(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z)
+{
+	  int16_t rawX,rawY,rawZ;
+	  float wspolczynnik = 2;
+	  uint8_t i2c_receive8bit_buf[6];
+	  uint8_t bytes_to_receive = 6;
 
+	  HAL_I2C_Mem_Read(hi2c, ACC_I2C_ADDR, ACCEL_START_REG,1, i2c_receive8bit_buf, bytes_to_receive, 10);
+	  rawX = (int16_t)(i2c_receive8bit_buf[0]<<8 | i2c_receive8bit_buf[1]);
+	  rawY = (int16_t)(i2c_receive8bit_buf[2]<<8 | i2c_receive8bit_buf[3]);
+	  rawZ = (int16_t)(i2c_receive8bit_buf[4]<<8 | i2c_receive8bit_buf[5]);
+
+	  *x = (float)rawX/pow(2,15)*wspolczynnik;
+	  *y = (float)rawY/pow(2,15)*wspolczynnik;
+	  *z = (float)rawZ/pow(2,15)*wspolczynnik;
+
+}
 /* USER CODE END 0 */
 
 /**
@@ -95,15 +113,12 @@ int main(void)
   initialise_monitor_handles();
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+
   uint8_t i2c_receive_buf[6];
   uint8_t i2c_transmit_buf[6];
-
-
-  uint8_t WHO_AM_I_A_reg = 0x75;
-  uint8_t ACC_I2C_ADDR = 0b1101000 << 1;
   uint8_t bytes_to_receive = 1;
 
-  HAL_I2C_Mem_Read(&hi2c1, ACC_I2C_ADDR, WHO_AM_I_A_reg, 1, i2c_receive_buf, bytes_to_receive, 50);
+  HAL_I2C_Mem_Read(&hi2c1, ACC_I2C_ADDR, WHO_AM_I_REG, 1, i2c_receive_buf, bytes_to_receive, 50);
 
   printf("WHO_AM_I_A: 0x%02X \n", i2c_receive_buf[0]);
 
@@ -131,27 +146,11 @@ int main(void)
   HAL_GPIO_WritePin(IN1_GPIO_Port, IN1_Pin, 0);
   HAL_GPIO_WritePin(IN2_GPIO_Port, IN2_Pin, 1);
 
-  int16_t x,y,z;
   float xf, yf, zf;
-  float wspolczynnik = 2;
-  uint8_t i2c_receive8bit_buf[6];
-  int16_t i2c_receive16bit_buf[3];
-  uint8_t SAMPLES_START_REG = 0x3B;
-  bytes_to_receive = 6;
 
   while (1)
   {
-	  HAL_I2C_Mem_Read(&hi2c1, ACC_I2C_ADDR, SAMPLES_START_REG,1, i2c_receive8bit_buf, bytes_to_receive, 10);
-	  i2c_receive16bit_buf[0] = (int16_t)(i2c_receive8bit_buf[0]<<8 | i2c_receive8bit_buf[1]);
-	  i2c_receive16bit_buf[1] = (int16_t)(i2c_receive8bit_buf[2]<<8 | i2c_receive8bit_buf[3]);
-	  i2c_receive16bit_buf[2] = (int16_t)(i2c_receive8bit_buf[4]<<8 | i2c_receive8bit_buf[5]);
-	  x = i2c_receive16bit_buf[0];
-	  y = i2c_receive16bit_buf[1];
-	  z = i2c_receive16bit_buf[2];
-
-	  xf = (float)x/pow(2,15)*wspolczynnik;
-	  yf = (float)y/pow(2,15)*wspolczynnik;
-	  zf = (float)z/pow(2,15)*wspolczynnik;
+	  readAccelerometer(&hi2c1, &xf, &yf, &zf);
 
 //			printf("x: %5d, y: %5d, z: %5d\n",x,y,z);
 	  printf("xf: %3.2f g, yf: %3.2f g, zf: %3.2f g\n",xf,yf,zf);
