@@ -95,7 +95,8 @@ void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float 
 	*pitch = alpha * (*pitch + gx * dt) + (1.0f-alpha) * acc_pitch;
 }
 
-float PID(float y, float yzad){
+float PID(float y, float yzad)
+{
 	const float Tp = 0.01f; //czas próbkowania
 	const float K =  2.5f;
 	const float Ti = 900000.0f;
@@ -121,21 +122,76 @@ float PID(float y, float yzad){
 	return u;
 }
 
+void forward(uint16_t pwm)
+{
+	  HAL_GPIO_WritePin(IN3_GPIO_Port, IN3_Pin, 1);
+	  HAL_GPIO_WritePin(IN4_GPIO_Port, IN4_Pin, 0);
+	  HAL_GPIO_WritePin(IN1_GPIO_Port, IN1_Pin, 1);
+	  HAL_GPIO_WritePin(IN2_GPIO_Port, IN2_Pin, 0);
+
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, pwm);
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, pwm);
+
+}
+
+void backward(uint16_t pwm)
+{
+	  HAL_GPIO_WritePin(IN3_GPIO_Port, IN3_Pin, 0);
+	  HAL_GPIO_WritePin(IN4_GPIO_Port, IN4_Pin, 1);
+	  HAL_GPIO_WritePin(IN1_GPIO_Port, IN1_Pin, 0);
+	  HAL_GPIO_WritePin(IN2_GPIO_Port, IN2_Pin, 1);
+
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, pwm);
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, pwm);
+
+}
+
+void stop()
+{
+	  HAL_GPIO_WritePin(IN3_GPIO_Port, IN3_Pin, 0);
+	  HAL_GPIO_WritePin(IN4_GPIO_Port, IN4_Pin, 0);
+	  HAL_GPIO_WritePin(IN1_GPIO_Port, IN1_Pin, 0);
+	  HAL_GPIO_WritePin(IN2_GPIO_Port, IN2_Pin, 0);
+
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 0);
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 0);
+}
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance == TIM3){
 		const float dt = 0.01f;
 		float accxf, accyf, acczf;
 		float gyroxf, gyroyf, gyrozf;
-		static float pitch = 0.0f, setPitch = 0.0f, u;
-		const float gyroXoffset = -4.58500671;
+		static float pitch = 0.0f, setPitch = 0.0f, u; // setPitch = -86.6f
+		const float gyroXoffset = -4.58500671, max_u = 400.0;
+		static uint16_t pwm;
 
 		readAccelerometer(&hi2c1, &accxf, &accyf, &acczf);
 		readGyroscope(&hi2c1, &gyroxf, &gyroyf, &gyrozf);
 		calculatePitch(&pitch, accxf, accyf, acczf, gyroxf-gyroXoffset, dt);
 
 		u = PID(pitch, setPitch);
-		printf("Control signal: %3.2f \n", u);
+		if (u > max_u) u = max_u;
+		if (u < -max_u) u = -max_u;
+//		printf("Control signal: %3.2f \n", u);
+
+		pwm = (uint16_t)((fabs(u)/max_u)*2000);
+
+		if (u > 5.0)
+		{
+			forward(pwm);
+			printf("Forward with duty cycle: %4d \n", pwm);
+		}
+		else if (u < -5.0)
+		{
+			backward(pwm);
+			printf("Backward with duty cycle: %4d \n", pwm);
+		}
+		else
+		{
+			stop();
+			printf("Stop \n");
+		}
 
 //		printf("Pitch %3.2f degrees\n",pitch);
 
@@ -179,9 +235,6 @@ int main(void)
   initialise_monitor_handles();
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
-  HAL_TIM_Base_Start_IT(&htim3);
-  HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(TIM3_IRQn);
 
   uint8_t i2c_receive_buf[6];
   uint8_t i2c_transmit_buf[6];
@@ -206,14 +259,15 @@ int main(void)
   uint8_t ACCEL_CONFIG_reg = 0x1C;
   HAL_I2C_Mem_Write(&hi2c1, ACC_I2C_ADDR, ACCEL_CONFIG_reg, 1, i2c_transmit_buf, 1, 50);
 
+  HAL_TIM_Base_Start_IT(&htim3);
+  HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(TIM3_IRQn);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  HAL_GPIO_WritePin(IN3_GPIO_Port, IN3_Pin, 0);
-  HAL_GPIO_WritePin(IN4_GPIO_Port, IN4_Pin, 1);
-  HAL_GPIO_WritePin(IN1_GPIO_Port, IN1_Pin, 0);
-  HAL_GPIO_WritePin(IN2_GPIO_Port, IN2_Pin, 1);
 
 
 
