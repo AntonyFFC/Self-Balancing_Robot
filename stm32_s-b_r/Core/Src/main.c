@@ -182,26 +182,26 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 		pwm = (uint16_t)((fabs(u)/max_u)*2000);
 
-//		if (u > 5.0)
-//		{
-//			forward(pwm);
-//			printf("Forward with duty cycle: %4d \n", pwm);
-//		}
-//		else if (u < -5.0)
-//		{
-//			backward(pwm);
-//			printf("Backward with duty cycle: %4d \n", pwm);
-//		}
-//		else
-//		{
-//			stop();
-//			printf("Stop \n");
-//		}
+		if (u > 5.0)
+		{
+			forward(pwm);
+			printf("Forward with duty cycle: %4d \n", pwm);
+		}
+		else if (u < -5.0)
+		{
+			backward(pwm);
+			printf("Backward with duty cycle: %4d \n", pwm);
+		}
+		else
+		{
+			stop();
+			printf("Stop \n");
+		}
 
 //		printf("Pitch %3.2f degrees\n",pitch);
 
-		adc_value_servo = (uint16_t)(rx_data[0] << 8) | rx_data[1];
-		printf("Received servo: %d \n", adc_value_servo);
+//		adc_value_servo = (uint16_t)(rx_data[0] << 8) | rx_data[1];
+//		printf("Received servo: %d \n", adc_value_servo);
 
 	}
 }
