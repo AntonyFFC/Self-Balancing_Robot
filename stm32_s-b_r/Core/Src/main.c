@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "i2c.h"
+#include "spi.h"
 #include "tim.h"
 #include "gpio.h"
 
@@ -26,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include <math.h>
 #include <stdio.h>
+#include "nrf24l01p.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,7 +51,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+uint8_t rx_data[NRF24L01P_PAYLOAD_LENGTH] = { 0 };
+uint16_t adc_value_servo;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -60,6 +63,8 @@ extern void initialise_monitor_handles(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
+
 void read3dData(I2C_HandleTypeDef* hi2c, float* x, float* y, float* z, float rangeFactor, uint8_t startReg)
 {
 	  int16_t rawX,rawY,rawZ;
@@ -177,23 +182,26 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 		pwm = (uint16_t)((fabs(u)/max_u)*2000);
 
-		if (u > 5.0)
-		{
-			forward(pwm);
-			printf("Forward with duty cycle: %4d \n", pwm);
-		}
-		else if (u < -5.0)
-		{
-			backward(pwm);
-			printf("Backward with duty cycle: %4d \n", pwm);
-		}
-		else
-		{
-			stop();
-			printf("Stop \n");
-		}
+//		if (u > 5.0)
+//		{
+//			forward(pwm);
+//			printf("Forward with duty cycle: %4d \n", pwm);
+//		}
+//		else if (u < -5.0)
+//		{
+//			backward(pwm);
+//			printf("Backward with duty cycle: %4d \n", pwm);
+//		}
+//		else
+//		{
+//			stop();
+//			printf("Stop \n");
+//		}
 
 //		printf("Pitch %3.2f degrees\n",pitch);
+
+		adc_value_servo = (uint16_t)(rx_data[0] << 8) | rx_data[1];
+		printf("Received servo: %d \n", adc_value_servo);
 
 	}
 }
@@ -231,6 +239,7 @@ int main(void)
   MX_TIM2_Init();
   MX_I2C1_Init();
   MX_TIM3_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
   initialise_monitor_handles();
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
@@ -259,8 +268,11 @@ int main(void)
   uint8_t ACCEL_CONFIG_reg = 0x1C;
   HAL_I2C_Mem_Write(&hi2c1, ACC_I2C_ADDR, ACCEL_CONFIG_reg, 1, i2c_transmit_buf, 1, 50);
 
+  nrf24l01p_rx_init(2500, _1Mbps);
+
   HAL_TIM_Base_Start_IT(&htim3);
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_SetPriority(TIM3_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(TIM3_IRQn);
 
@@ -325,6 +337,11 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	if(GPIO_Pin == NRF24L01P_IRQ_PIN_NUMBER)
+		nrf24l01p_rx_receive(&rx_data);
+}
 
 /* USER CODE END 4 */
 

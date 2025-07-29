@@ -30,7 +30,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-extern void initialise_monitor_handles(void);
+//extern void initialise_monitor_handles(void);
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -72,8 +72,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-    initialise_monitor_handles();
-    printf("Semihosting test\n");
+//    initialise_monitor_handles();
+//    printf("Semihosting test\n");
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -110,7 +110,7 @@ int main(void)
 	  HAL_ADC_PollForConversion(&hadc1, 10);
 	  adc_val_servo = HAL_ADC_GetValue(&hadc1);
 //	  adc_val_motor = HAL_ADC_GetValue(&hadc1);
-	  printf("wartosc serv = %d \n", adc_val_servo);
+//	  printf("wartosc serv = %d \n", adc_val_servo);
 
 //	  printf("wartosc siln = %d \n", adc_val_motor);
 
@@ -125,7 +125,7 @@ int main(void)
 //	  tx_data[2] = (uint8_t)(adc_val_motor >> 8);
 //	  tx_data[3] = (uint8_t)(adc_val_motor & 0xFF);
 
-	  printf("Transmitting ADC Servo: %d", adc_val_servo); // , ADC Motor: %d\n , adc_val_motor
+//	  printf("Transmitting ADC Servo: %d", adc_val_servo); // , ADC Motor: %d\n , adc_val_motor
 
 
 
@@ -133,6 +133,16 @@ int main(void)
 //		  tx_data[i]++;
 //	  printf("Transmitting = %d \n", adc_val_servo);
 	  nrf24l01p_tx_transmit(tx_data);
+
+	  if (tx_data[1] > 100)
+	  {
+		  HAL_GPIO_WritePin(test_LED_GPIO_Port, test_LED_Pin, GPIO_PIN_SET);  // Turn on LED
+	  }
+	  else
+	  {
+		  HAL_GPIO_WritePin(test_LED_GPIO_Port, test_LED_Pin, GPIO_PIN_RESET);  // Turn off LED
+	  }
+
 	  HAL_Delay(10);
 
     /* USER CODE END WHILE */
