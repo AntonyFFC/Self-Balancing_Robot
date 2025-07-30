@@ -109,7 +109,7 @@ int main(void)
 
 	  HAL_ADC_PollForConversion(&hadc1, 10);
 	  adc_val_servo = HAL_ADC_GetValue(&hadc1);
-//	  adc_val_motor = HAL_ADC_GetValue(&hadc1);
+	  adc_val_motor = HAL_ADC_GetValue(&hadc1);
 //	  printf("wartosc serv = %d \n", adc_val_servo);
 
 //	  printf("wartosc siln = %d \n", adc_val_motor);
@@ -119,18 +119,11 @@ int main(void)
 	  tx_data[0] = (uint8_t)(adc_val_servo >> 8);
 	  tx_data[1] = (uint8_t)(adc_val_servo & 0xFF);
 
-	  tx_data[2] = (uint8_t)(adc_val_servo >> 8);
-	  tx_data[3] = (uint8_t)(adc_val_servo & 0xFF);
-
-//	  tx_data[2] = (uint8_t)(adc_val_motor >> 8);
-//	  tx_data[3] = (uint8_t)(adc_val_motor & 0xFF);
+	  tx_data[2] = (uint8_t)(adc_val_motor >> 8);
+	  tx_data[3] = (uint8_t)(adc_val_motor & 0xFF);
 
 //	  printf("Transmitting ADC Servo: %d", adc_val_servo); // , ADC Motor: %d\n , adc_val_motor
 
-
-
-//	  for(int i= 0; i < 8; i++)
-//		  tx_data[i]++;
 //	  printf("Transmitting = %d \n", adc_val_servo);
 	  nrf24l01p_tx_transmit(tx_data);
 

@@ -53,6 +53,7 @@
 /* USER CODE BEGIN PV */
 uint8_t rx_data[NRF24L01P_PAYLOAD_LENGTH] = { 0 };
 uint16_t adc_value_servo;
+uint16_t adc_value_motor;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -200,8 +201,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 //		printf("Pitch %3.2f degrees\n",pitch);
 
-//		adc_value_servo = (uint16_t)(rx_data[0] << 8) | rx_data[1];
-//		printf("Received servo: %d \n", adc_value_servo);
+		adc_value_servo = (uint16_t)(rx_data[0] << 8) | rx_data[1];
+		adc_value_motor = (uint16_t)(rx_data[2] << 8) | rx_data[3];
+//		printf("Received servo: %d", adc_value_servo);
+//		printf(" Received motor: %d \n", adc_value_motor);
 
 	}
 }
