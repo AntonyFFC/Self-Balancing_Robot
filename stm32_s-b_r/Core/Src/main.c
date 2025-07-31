@@ -54,6 +54,7 @@
 uint8_t rx_data[NRF24L01P_PAYLOAD_LENGTH] = { 0 };
 uint16_t adc_value_servo;
 uint16_t adc_value_motor;
+float gyroXoffset, gyroYoffset, gyroZoffset;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -170,7 +171,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		float accxf, accyf, acczf;
 		float gyroxf, gyroyf, gyrozf;
 		static float pitch = 0.0f, setPitch = 0.0f, u; // setPitch = -86.6f
-		const float gyroXoffset = -4.58500671, max_u = 400.0;
+		const float max_u = 400.0;
 		static uint16_t pwm;
 
 		readAccelerometer(&hi2c1, &accxf, &accyf, &acczf);
@@ -208,6 +209,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 //		printf(" Received motor: %d \n", adc_value_motor);
 
 	}
+}
+
+void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset)
+{
+    float x, y, z;
+    const int samples = 500;
+    float sum_x = 0, sum_y = 0, sum_z = 0;
+
+    for (int i = 0; i < samples; ++i) {
+        readGyroscope(&x, &y, &z);
+        sum_x += x;
+        sum_y += y;
+        sum_z += z;
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+
+    *x_offset = sum_x / samples;
+    *y_offset = sum_y / samples;
+    *z_offset = sum_z / samples;
+
+    printf("Gyro offsets: X=%.3f, Y=%.3f, Z=%.3f", *x_offset, *y_offset, *z_offset);
 }
 /* USER CODE END 0 */
 
@@ -271,6 +293,8 @@ int main(void)
 
   uint8_t ACCEL_CONFIG_reg = 0x1C;
   HAL_I2C_Mem_Write(&hi2c1, ACC_I2C_ADDR, ACCEL_CONFIG_reg, 1, i2c_transmit_buf, 1, 50);
+
+  calibrate_gyroscope_offset(&gyroXoffset, &gyroYoffset, &gyroZoffset);
 
   nrf24l01p_rx_init(2500, _1Mbps);
 
