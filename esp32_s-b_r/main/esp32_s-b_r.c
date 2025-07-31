@@ -150,7 +150,6 @@ void regular_100Hz_task(void *arg)
         // ESP_LOGI(TAG, "ACCEL xf: %3.2f g, yf: %3.2f g, zf: %3.2f g", accxf, accyf, acczf);
         // ESP_LOGI(TAG, "GYRO xf: %3.2f g, yf: %3.2f g, zf: %3.2f g", gyroxf, gyroyf, gyrozf);
 
-        // Wait for next cycle
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
     }
 }
