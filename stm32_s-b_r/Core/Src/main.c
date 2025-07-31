@@ -98,6 +98,7 @@ void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float 
 {
 	const float alpha = 0.95;
 	float acc_pitch = atan2(ax, sqrt(ay*ay+az*az)) * 180.0 / M_PI;
+	// float acc_pitch = atan2(az, sqrt(ax*ax + ay*ay)) * (180.0 / M_PI); // Alternative vertical formula
 	*pitch = alpha * (*pitch + gx * dt) + (1.0f-alpha) * acc_pitch;
 }
 
