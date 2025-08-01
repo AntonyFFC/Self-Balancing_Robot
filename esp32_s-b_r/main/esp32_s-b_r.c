@@ -4,12 +4,13 @@
 #include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/ledc.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-static const char *TAG = "i2c-mpu6050-comunication";
+static const char *TAG = "self-balancing-robot";
 
 #define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
 #define I2C_MASTER_SDA_IO           21      /*!< GPIO number used for I2C master data  */
@@ -25,7 +26,43 @@ static const char *TAG = "i2c-mpu6050-comunication";
 #define GYRO_START_REG 0x43
 #define WHO_AM_I_REG 0x75
 
+#define LEDC_TIMER              LEDC_TIMER_0
+#define LEDC_MODE               LEDC_LOW_SPEED_MODE
+#define LEDC_OUTPUT_IO          12 // Define the output GPIO
+#define LEDC_CHANNEL            LEDC_CHANNEL_0
+#define LEDC_DUTY_RES           LEDC_TIMER_14_BIT // Set duty resolution to 14 bits
+#define LEDC_MAX_DUTY           16383 // Maximum duty cycle value
+#define LEDC_DUTY               8191 // Set duty to 50%. ((2 ** 14) - 1) * 50% = 8191
+#define LEDC_FREQUENCY          500 // Frequency in Hertz. Set frequency at 500 Hz
+
+#define L298N_ENA_GPIO LEDC_OUTPUT_IO
+#define L298N_IN1_GPIO 14
+#define L298N_IN2_GPIO 27
+
 #define TASK_PERIOD_MS 10   /*!< Task period in milliseconds */
+
+static void pwm_init(void)
+{
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode       = LEDC_MODE,
+        .timer_num        = LEDC_TIMER,
+        .duty_resolution  = LEDC_DUTY_RES,
+        .freq_hz          = LEDC_FREQUENCY,
+        .clk_cfg          = LEDC_AUTO_CLK
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+
+    ledc_channel_config_t ledc_channel = {
+        .speed_mode     = LEDC_MODE,
+        .channel        = LEDC_CHANNEL,
+        .timer_sel      = LEDC_TIMER,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .gpio_num       = LEDC_OUTPUT_IO,
+        .duty           = 0,
+        .hpoint         = 0
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+}
 
 static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
 {
@@ -123,6 +160,34 @@ float PID(float y, float yzad)
 	return u;
 }
 
+
+void forward(uint16_t pwm)
+{
+    gpio_set_level(L298N_IN1_GPIO, 1);
+    gpio_set_level(L298N_IN2_GPIO, 0);
+
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, pwm));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+}
+
+void backward(uint16_t pwm)
+{
+    gpio_set_level(L298N_IN1_GPIO, 0);
+    gpio_set_level(L298N_IN2_GPIO, 1);
+
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, pwm));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+}
+
+void stop()
+{
+    gpio_set_level(L298N_IN1_GPIO, 0);
+    gpio_set_level(L298N_IN2_GPIO, 0);
+
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 0));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+}
+
 void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset);
 
 void regular_100Hz_task(void *arg)
@@ -131,9 +196,9 @@ void regular_100Hz_task(void *arg)
     float gyroxf, gyroyf, gyrozf;
     static float pitch = 0.0f, setPitch = 0.0f, u;
     TickType_t last_wake_time = xTaskGetTickCount();
-
     float gx_offset, gy_offset, gz_offset;
-    const float max_u = 400.0f;
+    const float max_u = 250.0f;
+    static uint16_t pwm;
     calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
 
     while (true) {
@@ -144,8 +209,25 @@ void regular_100Hz_task(void *arg)
         u = PID(pitch, setPitch);
 		if (u > max_u) u = max_u;
 		if (u < -max_u) u = -max_u;
+        pwm = (uint16_t)((fabs(u)/max_u)*LEDC_MAX_DUTY);
 
-        ESP_LOGI(TAG, "Pitch: %3.2f, SetPitch: %3.2f, Control Signal: %3.2f", pitch, setPitch, u);
+        if (u > 5.0)
+		{
+			forward(pwm);
+            ESP_LOGI(TAG, "Forward with duty cycle: %4d", pwm);
+        }
+        else if (u < -5.0)
+        {
+            backward(pwm);
+            ESP_LOGI(TAG, "Backward with duty cycle: %4d", pwm);
+        }
+        else
+        {
+            stop();
+            ESP_LOGI(TAG, "Stop");
+		}
+
+        // ESP_LOGI(TAG, "Pitch: %3.2f, SetPitch: %3.2f, Control Signal: %3.2f", pitch, setPitch, u);
         // ESP_LOGI(TAG, "Pitch: %3.2f", pitch);
         // ESP_LOGI(TAG, "ACCEL xf: %3.2f g, yf: %3.2f g, zf: %3.2f g", accxf, accyf, acczf);
         // ESP_LOGI(TAG, "GYRO xf: %3.2f g, yf: %3.2f g, zf: %3.2f g", gyroxf, gyroyf, gyrozf);
@@ -157,7 +239,7 @@ void regular_100Hz_task(void *arg)
 void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset)
 {
     float x, y, z;
-    const int samples = 500;
+    const int samples = 10000;
     float sum_x = 0, sum_y = 0, sum_z = 0;
 
     for (int i = 0; i < samples; ++i) {
@@ -205,6 +287,11 @@ void app_main(void)
     i2c_transmit_buf[0] = 0x00;
     ESP_ERROR_CHECK(mpu6050_register_write_byte(ACCEL_CONFIG_reg, i2c_transmit_buf[0]));
     ESP_LOGI(TAG, "ACCEL_CONFIG set to 0x%02X", i2c_transmit_buf[0]);
+
+    pwm_init();
+
+    // ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, LEDC_DUTY));
+    // ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
 
     xTaskCreate(regular_100Hz_task, "100Hz_task", 4096, NULL, 5, NULL);
 
