@@ -5,6 +5,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/ledc.h"
+#include "wifi.h"
+#include "lwip/sockets.h"
+#include "lwip/netdb.h"
+#include "nvs_flash.h"
+
+#define DESTINATION_IP "192.168.1.21"
+#define DESTINATION_PORT 7777
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -40,6 +47,50 @@ static const char *TAG = "self-balancing-robot";
 #define L298N_IN2_GPIO 27
 
 #define TASK_PERIOD_MS 10   /*!< Task period in milliseconds */
+
+int udp_sock;
+struct sockaddr_in dest_addr;
+
+extern bool wifi_connected;
+
+esp_err_t my_udp_init(void) {
+    if (!wifi_connected) {
+        ESP_LOGE(TAG, "Wi-Fi not connected, delaying UDP init");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (udp_sock < 0) {
+        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        return ESP_FAIL;
+    }
+
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(DESTINATION_PORT);
+    if (inet_pton(AF_INET, DESTINATION_IP, &dest_addr.sin_addr.s_addr) != 1) {
+        ESP_LOGE(TAG, "Invalid destination IP: %s", DESTINATION_IP);
+        close(udp_sock);
+        udp_sock = -1;
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "UDP socket initialized successfully");
+    return ESP_OK;
+}
+
+static void udp_send_data(const char *data) {
+    if (udp_sock < 0) {
+        ESP_LOGE(TAG, "UDP socket not initialized");
+        return;
+    }
+
+    int err = sendto(udp_sock, data, strlen(data), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    if (err < 0) {
+        // ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+    } else {
+        // ESP_LOGI(TAG, "Data sent successfully: %s", data);
+    }
+}
 
 static void pwm_init(void)
 {
@@ -199,33 +250,39 @@ void regular_100Hz_task(void *arg)
     float gx_offset, gy_offset, gz_offset;
     const float max_u = 250.0f;
     static uint16_t pwm;
+    char msg[128];
+
     calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
 
     while (true) {
         readAccelerometer(&accxf, &accyf, &acczf);
 		readGyroscope(&gyroxf, &gyroyf, &gyrozf);
+        // printf("%0.2f,%0.2f,%0.2f\n", accxf, accyf, acczf);
+
         calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
+        snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", pitch, setPitch, u);
+        udp_send_data(msg);
 
         u = PID(pitch, setPitch);
 		if (u > max_u) u = max_u;
 		if (u < -max_u) u = -max_u;
         pwm = (uint16_t)((fabs(u)/max_u)*LEDC_MAX_DUTY);
 
-        if (u > 5.0)
-		{
-			forward(pwm);
-            ESP_LOGI(TAG, "Forward with duty cycle: %4d", pwm);
-        }
-        else if (u < -5.0)
-        {
-            backward(pwm);
-            ESP_LOGI(TAG, "Backward with duty cycle: %4d", pwm);
-        }
-        else
-        {
-            stop();
-            ESP_LOGI(TAG, "Stop");
-		}
+        // if (u > 5.0)
+		// {
+		// 	forward(pwm);
+        //     ESP_LOGI(TAG, "Forward with duty cycle: %4d", pwm);
+        // }
+        // else if (u < -5.0)
+        // {
+        //     backward(pwm);
+        //     ESP_LOGI(TAG, "Backward with duty cycle: %4d", pwm);
+        // }
+        // else
+        // {
+        //     stop();
+        //     ESP_LOGI(TAG, "Stop");
+		// }
 
         // ESP_LOGI(TAG, "Pitch: %3.2f, SetPitch: %3.2f, Control Signal: %3.2f", pitch, setPitch, u);
         // ESP_LOGI(TAG, "Pitch: %3.2f", pitch);
@@ -287,6 +344,19 @@ void app_main(void)
     i2c_transmit_buf[0] = 0x00;
     ESP_ERROR_CHECK(mpu6050_register_write_byte(ACCEL_CONFIG_reg, i2c_transmit_buf[0]));
     ESP_LOGI(TAG, "ACCEL_CONFIG set to 0x%02X", i2c_transmit_buf[0]);
+
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+      ESP_ERROR_CHECK(nvs_flash_erase());
+      ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    wifi_init_sta();
+    while (!wifi_connected) {
+        ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    ESP_ERROR_CHECK(my_udp_init());
 
     pwm_init();
 

@@ -1,0 +1,22 @@
+{
+  "title": "Self-Balancing Robot",
+  "variables": [
+    {
+      "name": "Pitch",
+      "type": "Number",
+      "plot": true,
+      "unit": "°"
+    },
+    {
+      "name": "Setpoint",
+      "type": "Number",
+      "plot": true,
+      "unit": "°"
+    },
+    {
+      "name": "Control_Signal",
+      "type": "Number",
+      "plot": true
+    }
+  ]
+}
