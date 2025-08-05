@@ -10,6 +10,7 @@
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include "nvs_flash.h"
+#include "cJSON.h"
 
 #define DESTINATION_IP "192.168.1.21"
 #define DESTINATION_PORT 7777
@@ -47,14 +48,14 @@ static const char *TAG = "self-balancing-robot";
 #define L298N_IN1_GPIO 14
 #define L298N_IN2_GPIO 27
 
-// #define UDP_QUEUE_LEN 10
+#define UDP_QUEUE_LEN 10
 #define UDP_MSG_MAX_LEN 128
 
-// static QueueHandle_t udp_queue;
+static QueueHandle_t udp_queue;
 
-static float pitch = 0.0f, setPitch = 0.0f, u;
+// static float pitch = 0.0f, setPitch = 0.0f, u;
 
-#define TASK_PERIOD_MS 10   /*!< Task period in milliseconds */
+#define TASK_PERIOD_MS 100   /*!< Task period in milliseconds */
 #define UDP_SENDER_TASK_PERIOD_MS 100 /*!< UDP sender task period in milliseconds */
 
 int udp_sock;
@@ -95,9 +96,9 @@ static void udp_send_data(const char *data) {
 
     int err = sendto(udp_sock, data, strlen(data), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
     if (err < 0) {
-        // ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
     } else {
-        // ESP_LOGI(TAG, "Data sent successfully: %s", data);
+        ESP_LOGI(TAG, "Data sent successfully: %s", data);
     }
 }
 
@@ -195,7 +196,7 @@ void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float 
 
 float PID(float y, float yzad)
 {
-	const float Tp = 0.01f; //czas próbkowania
+	const float Tp = 0.1f; //czas próbkowania
 	const float K =  2.5f;
 	const float Ti = 900000.0f;
 	const float Td = 0.0f;
@@ -254,12 +255,12 @@ void regular_100Hz_task(void *arg)
 {
     float accxf, accyf, acczf;
     float gyroxf, gyroyf, gyrozf;
-    // static float pitch = 0.0f, setPitch = 0.0f, u;
+    static float pitch = 0.0f, setPitch = 0.0f, u;
     TickType_t last_wake_time = xTaskGetTickCount();
     float gx_offset, gy_offset, gz_offset;
     const float max_u = 250.0f;
     static uint16_t pwm;
-    // char msg[UDP_MSG_MAX_LEN];
+    char msg[UDP_MSG_MAX_LEN];
 
     calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
 
@@ -269,29 +270,29 @@ void regular_100Hz_task(void *arg)
         // printf("%0.2f,%0.2f,%0.2f\n", accxf, accyf, acczf);
 
         calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
-        // snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", pitch, setPitch, u);
-        // xQueueSend(udp_queue, msg, 0);
+        snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", pitch, setPitch, u);
+        xQueueSend(udp_queue, msg, 0);
 
         u = PID(pitch, setPitch);
 		if (u > max_u) u = max_u;
 		if (u < -max_u) u = -max_u;
         pwm = (uint16_t)((fabs(u)/max_u)*LEDC_MAX_DUTY);
 
-        // if (u > 5.0)
-		// {
-		// 	forward(pwm);
-        //     ESP_LOGI(TAG, "Forward with duty cycle: %4d", pwm);
-        // }
-        // else if (u < -5.0)
-        // {
-        //     backward(pwm);
-        //     ESP_LOGI(TAG, "Backward with duty cycle: %4d", pwm);
-        // }
-        // else
-        // {
-        //     stop();
-        //     ESP_LOGI(TAG, "Stop");
-		// }
+        if (u > 5.0)
+		{
+			forward(pwm);
+            ESP_LOGI(TAG, "Forward with duty cycle: %4d", pwm);
+        }
+        else if (u < -5.0)
+        {
+            backward(pwm);
+            ESP_LOGI(TAG, "Backward with duty cycle: %4d", pwm);
+        }
+        else
+        {
+            stop();
+            ESP_LOGI(TAG, "Stop");
+		}
 
         // ESP_LOGI(TAG, "Pitch: %3.2f, SetPitch: %3.2f, Control Signal: %3.2f", pitch, setPitch, u);
         // ESP_LOGI(TAG, "Pitch: %3.2f", pitch);
@@ -306,19 +307,19 @@ void udp_sender_task(void *arg)
 {
     char msg[UDP_MSG_MAX_LEN];
 
-    float latest_pitch, latest_setPitch, latest_u;
-    TickType_t last_wake_time = xTaskGetTickCount();
+    // float latest_pitch, latest_setPitch, latest_u;
+    // TickType_t last_wake_time = xTaskGetTickCount();
 
     while (true) {
-        latest_pitch = pitch;
-        latest_setPitch = setPitch;
-        latest_u = u;
-        snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", latest_pitch, latest_setPitch, latest_u);
-        udp_send_data(msg);
-        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(UDP_SENDER_TASK_PERIOD_MS));
-        // if (xQueueReceive(udp_queue, msg, portMAX_DELAY)) {
-        //     udp_send_data(msg);
-        // }
+        // latest_pitch = pitch;
+        // latest_setPitch = setPitch;
+        // latest_u = u;
+        // snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", latest_pitch, latest_setPitch, latest_u);
+        // udp_send_data(msg);
+        // vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(UDP_SENDER_TASK_PERIOD_MS));
+        if (xQueueReceive(udp_queue, msg, portMAX_DELAY)) {
+            udp_send_data(msg);
+        }
     }
 }
 
@@ -389,10 +390,10 @@ void app_main(void)
 
     pwm_init();
 
-    // udp_queue = xQueueCreate(UDP_QUEUE_LEN, UDP_MSG_MAX_LEN);
-    // if (udp_queue == NULL) {
-    //     ESP_LOGI(TAG, "Failed to create UDP queue");
-    // }
+    udp_queue = xQueueCreate(UDP_QUEUE_LEN, UDP_MSG_MAX_LEN);
+    if (udp_queue == NULL) {
+        ESP_LOGI(TAG, "Failed to create UDP queue");
+    }
 
     xTaskCreate(regular_100Hz_task, "100Hz_task", 4096, NULL, 5, NULL);
     xTaskCreate(udp_sender_task, "udp_sender_task", 4096, NULL, 3, NULL);
