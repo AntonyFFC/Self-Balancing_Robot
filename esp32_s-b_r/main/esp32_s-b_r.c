@@ -4,6 +4,7 @@
 #include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "driver/ledc.h"
 #include "wifi.h"
 #include "lwip/sockets.h"
@@ -46,7 +47,15 @@ static const char *TAG = "self-balancing-robot";
 #define L298N_IN1_GPIO 14
 #define L298N_IN2_GPIO 27
 
+// #define UDP_QUEUE_LEN 10
+#define UDP_MSG_MAX_LEN 128
+
+// static QueueHandle_t udp_queue;
+
+static float pitch = 0.0f, setPitch = 0.0f, u;
+
 #define TASK_PERIOD_MS 10   /*!< Task period in milliseconds */
+#define UDP_SENDER_TASK_PERIOD_MS 100 /*!< UDP sender task period in milliseconds */
 
 int udp_sock;
 struct sockaddr_in dest_addr;
@@ -245,12 +254,12 @@ void regular_100Hz_task(void *arg)
 {
     float accxf, accyf, acczf;
     float gyroxf, gyroyf, gyrozf;
-    static float pitch = 0.0f, setPitch = 0.0f, u;
+    // static float pitch = 0.0f, setPitch = 0.0f, u;
     TickType_t last_wake_time = xTaskGetTickCount();
     float gx_offset, gy_offset, gz_offset;
     const float max_u = 250.0f;
     static uint16_t pwm;
-    char msg[128];
+    // char msg[UDP_MSG_MAX_LEN];
 
     calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
 
@@ -260,8 +269,8 @@ void regular_100Hz_task(void *arg)
         // printf("%0.2f,%0.2f,%0.2f\n", accxf, accyf, acczf);
 
         calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
-        snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", pitch, setPitch, u);
-        udp_send_data(msg);
+        // snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", pitch, setPitch, u);
+        // xQueueSend(udp_queue, msg, 0);
 
         u = PID(pitch, setPitch);
 		if (u > max_u) u = max_u;
@@ -290,6 +299,26 @@ void regular_100Hz_task(void *arg)
         // ESP_LOGI(TAG, "GYRO xf: %3.2f g, yf: %3.2f g, zf: %3.2f g", gyroxf, gyroyf, gyrozf);
 
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
+    }
+}
+
+void udp_sender_task(void *arg)
+{
+    char msg[UDP_MSG_MAX_LEN];
+
+    float latest_pitch, latest_setPitch, latest_u;
+    TickType_t last_wake_time = xTaskGetTickCount();
+
+    while (true) {
+        latest_pitch = pitch;
+        latest_setPitch = setPitch;
+        latest_u = u;
+        snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", latest_pitch, latest_setPitch, latest_u);
+        udp_send_data(msg);
+        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(UDP_SENDER_TASK_PERIOD_MS));
+        // if (xQueueReceive(udp_queue, msg, portMAX_DELAY)) {
+        //     udp_send_data(msg);
+        // }
     }
 }
 
@@ -360,9 +389,12 @@ void app_main(void)
 
     pwm_init();
 
-    // ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, LEDC_DUTY));
-    // ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+    // udp_queue = xQueueCreate(UDP_QUEUE_LEN, UDP_MSG_MAX_LEN);
+    // if (udp_queue == NULL) {
+    //     ESP_LOGI(TAG, "Failed to create UDP queue");
+    // }
 
     xTaskCreate(regular_100Hz_task, "100Hz_task", 4096, NULL, 5, NULL);
+    xTaskCreate(udp_sender_task, "udp_sender_task", 4096, NULL, 3, NULL);
 
 }
