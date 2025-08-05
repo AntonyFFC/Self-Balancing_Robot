@@ -32,7 +32,7 @@ ax1.set_title("Pitch vs Set Pitch")
 
 # Control Signal plot
 line3, = ax2.plot([], [], 'g-', label='Control Signal (u)', linewidth=2)
-ax2.set_ylim(-100, 100)
+ax2.set_ylim(-250, 250)
 ax2.set_xlim(0, 100)
 ax2.set_ylabel("Control Signal")
 ax2.set_xlabel("Time")
@@ -79,27 +79,96 @@ def send_pid_values():
 
 def send_p_gain(val):
     pid_values['P'] = float(val)
+    p_entry.delete(0, tk.END)
+    p_entry.insert(0, f"{float(val):.1f}")
     send_pid_values()
 
 def send_i_gain(val):
     pid_values['I'] = float(val)
+    i_entry.delete(0, tk.END)
+    i_entry.insert(0, f"{float(val):.1f}")
     send_pid_values()
 
 def send_d_gain(val):
     pid_values['D'] = float(val)
+    d_entry.delete(0, tk.END)
+    d_entry.insert(0, f"{float(val):.1f}")
     send_pid_values()
+
+def on_p_entry_change(event):
+    try:
+        val = float(p_entry.get())
+        if 0.0 <= val <= 10.0:
+            p_scale.set(val)
+            pid_values['P'] = val
+            send_pid_values()
+    except ValueError:
+        pass
+
+def on_i_entry_change(event):
+    try:
+        val = float(i_entry.get())
+        if 0.0 <= val <= 10.0:
+            i_scale.set(val)
+            pid_values['I'] = val
+            send_pid_values()
+    except ValueError:
+        pass
+
+def on_d_entry_change(event):
+    try:
+        val = float(d_entry.get())
+        if 0.0 <= val <= 10.0:
+            d_scale.set(val)
+            pid_values['D'] = val
+            send_pid_values()
+    except ValueError:
+        pass
 
 root = tk.Tk()
 root.title("PID Control")
 
-p_scale = tk.Scale(root, from_=0.0, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, label="P Gain", command=send_p_gain)
+pid_frame = tk.Frame(root)
+pid_frame.pack(pady=10)
+
+# P Gain controls
+p_frame = tk.Frame(pid_frame)
+p_frame.pack(side=tk.LEFT, padx=10)
+tk.Label(p_frame, text="P Gain").pack()
+p_scale = tk.Scale(p_frame, from_=0.0, to=10.0, resolution=0.1, orient=tk.VERTICAL, command=send_p_gain)
 p_scale.pack()
+p_entry = tk.Entry(p_frame, width=8)
+p_entry.pack(pady=5)
 
-i_scale = tk.Scale(root, from_=0.0, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, label="I Gain", command=send_i_gain)
+# I Gain controls
+i_frame = tk.Frame(pid_frame)
+i_frame.pack(side=tk.LEFT, padx=10)
+tk.Label(i_frame, text="I Gain").pack()
+i_scale = tk.Scale(i_frame, from_=0.0, to=10.0, resolution=0.1, orient=tk.VERTICAL, command=send_i_gain)
 i_scale.pack()
+i_entry = tk.Entry(i_frame, width=8)
+i_entry.pack(pady=5)
 
-d_scale = tk.Scale(root, from_=0.0, to=10.0, resolution=0.1, orient=tk.HORIZONTAL, label="D Gain", command=send_d_gain)
+# D Gain controls
+d_frame = tk.Frame(pid_frame)
+d_frame.pack(side=tk.LEFT, padx=10)
+tk.Label(d_frame, text="D Gain").pack()
+d_scale = tk.Scale(d_frame, from_=0.0, to=10.0, resolution=0.1, orient=tk.VERTICAL, command=send_d_gain)
 d_scale.pack()
+d_entry = tk.Entry(d_frame, width=8)
+d_entry.pack(pady=5)
+
+# Bind entry fields to update functions
+p_entry.bind('<Return>', on_p_entry_change)
+p_entry.bind('<FocusOut>', on_p_entry_change)
+i_entry.bind('<Return>', on_i_entry_change)
+i_entry.bind('<FocusOut>', on_i_entry_change)
+d_entry.bind('<Return>', on_d_entry_change)
+d_entry.bind('<FocusOut>', on_d_entry_change)
+
+p_entry.insert(0, "0.0")
+i_entry.insert(0, "0.0")
+d_entry.insert(0, "0.0")
 
 canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.draw()
