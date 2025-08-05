@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import csv
+import datetime
 
 UDP_IP = "0.0.0.0"
 UDP_PORT = 7777
@@ -17,6 +19,10 @@ x_data = []
 pitch_data = []
 setpitch_data = []
 u_data = []
+
+csv_data = []
+start_time = datetime.datetime.now()
+csv_filename = f"pid_data_{start_time.strftime('%Y%m%d_%H%M%S')}.csv"
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8))
 
@@ -49,10 +55,14 @@ def update(frame):
         setPitch = float(values[1])
         u = float(values[2])
         
+        elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
+        
         x_data.append(len(x_data))
         pitch_data.append(pitch)
         setpitch_data.append(setPitch)
         u_data.append(u)
+
+        csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D']])
         
         line1.set_data(x_data, pitch_data)
         line2.set_data(x_data, setpitch_data)
@@ -127,6 +137,22 @@ def on_d_entry_change(event):
 
 root = tk.Tk()
 root.title("PID Control")
+
+def on_closing():
+    print("Saving data to CSV...")
+    try:
+        with open(csv_filename, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['Time', 'Pitch', 'SetPitch', 'ControlSignal', 'P_Gain', 'I_Gain', 'D_Gain'])
+            writer.writerows(csv_data)
+        print(f"Data successfully saved to: {csv_filename}")
+        print(f"Total data points saved: {len(csv_data)}")
+    except Exception as e:
+        print(f"Error saving CSV file: {e}")
+    
+    root.destroy()
+
+root.protocol("WM_DELETE_WINDOW", on_closing)
 
 pid_frame = tk.Frame(root)
 pid_frame.pack(pady=10)
