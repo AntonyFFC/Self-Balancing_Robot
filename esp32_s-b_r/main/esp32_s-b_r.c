@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include "esp_log.h"
 #include "driver/i2c.h"
 #include <math.h>
@@ -6,6 +8,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "driver/ledc.h"
+#include "driver/gpio.h"
 #include "wifi.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
@@ -14,6 +17,7 @@
 
 #define DESTINATION_IP "192.168.1.21"
 #define DESTINATION_PORT 7777
+#define LISTEN_PORT 7778
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -53,6 +57,11 @@ static const char *TAG = "self-balancing-robot";
 
 static QueueHandle_t udp_queue;
 
+// PID parameters (global, thread-safe access)
+static float pid_K = 2.5f;
+static float pid_Ti = 900000.0f;
+static float pid_Td = 0.0f;
+
 // static float pitch = 0.0f, setPitch = 0.0f, u;
 
 #define TASK_PERIOD_MS 100   /*!< Task period in milliseconds */
@@ -60,6 +69,7 @@ static QueueHandle_t udp_queue;
 
 int udp_sock;
 struct sockaddr_in dest_addr;
+int udp_listen_sock; 
 
 extern bool wifi_connected;
 
@@ -85,6 +95,35 @@ esp_err_t my_udp_init(void) {
     }
 
     ESP_LOGI(TAG, "UDP socket initialized successfully");
+    return ESP_OK;
+}
+
+esp_err_t udp_server_init(void) {
+    if (!wifi_connected) {
+        ESP_LOGE(TAG, "Wi-Fi not connected, delaying UDP server init");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    udp_listen_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (udp_listen_sock < 0) {
+        ESP_LOGE(TAG, "Unable to create listen socket: errno %d", errno);
+        return ESP_FAIL;
+    }
+
+    struct sockaddr_in listen_addr;
+    listen_addr.sin_family = AF_INET;
+    listen_addr.sin_addr.s_addr = INADDR_ANY;
+    listen_addr.sin_port = htons(LISTEN_PORT);
+
+    int err = bind(udp_listen_sock, (struct sockaddr *)&listen_addr, sizeof(listen_addr));
+    if (err < 0) {
+        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
+        close(udp_listen_sock);
+        udp_listen_sock = -1;
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "UDP server socket initialized successfully on port %d", LISTEN_PORT);
     return ESP_OK;
 }
 
@@ -123,6 +162,20 @@ static void pwm_init(void)
         .hpoint         = 0
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+}
+
+static void motor_gpio_init(void)
+{
+    gpio_config_t io_conf = {};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1ULL << L298N_IN1_GPIO) | (1ULL << L298N_IN2_GPIO);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+    
+    gpio_set_level(L298N_IN1_GPIO, 0);
+    gpio_set_level(L298N_IN2_GPIO, 0);
 }
 
 static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
@@ -197,9 +250,9 @@ void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float 
 float PID(float y, float yzad)
 {
 	const float Tp = 0.1f; //czas próbkowania
-	const float K =  2.5f;
-	const float Ti = 900000.0f;
-	const float Td = 0.0f;
+	const float K = pid_K;
+	const float Ti = pid_Ti;
+	const float Td = pid_Td;
 
 	static float u =  0.0f;
 
@@ -250,6 +303,41 @@ void stop()
 }
 
 void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset);
+
+void parse_pid_command(const char* cmd) {
+    float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
+    bool updated = false;
+    
+    // Parse P value
+    char* p_pos = strstr(cmd, "P=");
+    if (p_pos != NULL) {
+        new_P = atof(p_pos + 2);
+        updated = true;
+    }
+    
+    // Parse I value
+    char* i_pos = strstr(cmd, "I=");
+    if (i_pos != NULL) {
+        float i_val = atof(i_pos + 2);
+        new_I = i_val;
+        updated = true;
+    }
+    
+    // Parse D value
+    char* d_pos = strstr(cmd, "D=");
+    if (d_pos != NULL) {
+        new_D = atof(d_pos + 2);
+        updated = true;
+    }
+    
+    if (updated) {
+        pid_K = new_P;
+        pid_Ti = (new_I != 0.0f) ? (1.0f / new_I) : 900000.0f;  // Zmiana z I na Ti
+        pid_Td = new_D;
+        ESP_LOGI(TAG, "PID updated: P=%.3f, I=%.6f, D=%.3f (Ti=%.1f)", 
+                 pid_K, new_I, pid_Td, pid_Ti);
+    }
+}
 
 void regular_100Hz_task(void *arg)
 {
@@ -323,6 +411,39 @@ void udp_sender_task(void *arg)
     }
 }
 
+void udp_receiver_task(void *arg)
+{
+    char rx_buffer[128];
+    struct sockaddr_in source_addr;
+    socklen_t socklen = sizeof(source_addr);
+    
+    while (true) {
+        if (udp_listen_sock < 0) {
+            ESP_LOGE(TAG, "UDP listen socket not initialized, retrying...");
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            continue;
+        }
+        
+        int len = recvfrom(udp_listen_sock, rx_buffer, sizeof(rx_buffer) - 1, 0, 
+                          (struct sockaddr *)&source_addr, &socklen);
+        
+        if (len < 0) {
+            ESP_LOGE(TAG, "recvfrom failed: errno %d", errno);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+        
+        rx_buffer[len] = 0;
+        
+        char addr_str[128];
+        inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
+        
+        ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
+        
+        parse_pid_command(rx_buffer);
+    }
+}
+
 void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset)
 {
     float x, y, z;
@@ -387,8 +508,10 @@ void app_main(void)
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
     ESP_ERROR_CHECK(my_udp_init());
+    ESP_ERROR_CHECK(udp_server_init());
 
     pwm_init();
+    motor_gpio_init();
 
     udp_queue = xQueueCreate(UDP_QUEUE_LEN, UDP_MSG_MAX_LEN);
     if (udp_queue == NULL) {
@@ -397,5 +520,6 @@ void app_main(void)
 
     xTaskCreate(regular_100Hz_task, "100Hz_task", 4096, NULL, 5, NULL);
     xTaskCreate(udp_sender_task, "udp_sender_task", 4096, NULL, 3, NULL);
+    xTaskCreate(udp_receiver_task, "udp_receiver_task", 4096, NULL, 3, NULL);
 
 }

@@ -19,7 +19,8 @@
 			"sdkconfig.h": "c",
 			"freertos.h": "c",
 			"task.h": "c",
-			"pulse_cnt.h": "c"
+			"pulse_cnt.h": "c",
+			"sockets.h": "c"
 		}
 	}
 }
