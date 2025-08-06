@@ -10,8 +10,9 @@ UDP_IP = "0.0.0.0"
 UDP_PORT = 7777
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
+sock.settimeout(0.01)
 
-ESP_IP = "192.168.1.22"
+ESP_IP = "192.168.1.10"
 ESP_PORT = 7778
 send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -47,32 +48,37 @@ ax2.grid(True)
 ax2.set_title("Control Signal")
 
 def update(frame):
-    data, addr = sock.recvfrom(1024)
-    values = data.decode().strip().split(",")
-    
-    if len(values) >= 3:
-        pitch = float(values[0])
-        setPitch = float(values[1])
-        u = float(values[2])
+    try:
+        data, addr = sock.recvfrom(1024)
+        values = data.decode().strip().split(",")
         
-        elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
-        
-        x_data.append(len(x_data))
-        pitch_data.append(pitch)
-        setpitch_data.append(setPitch)
-        u_data.append(u)
+        if len(values) >= 3:
+            pitch = float(values[0])
+            setPitch = float(values[1])
+            u = float(values[2])
+            
+            elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
+            
+            x_data.append(len(x_data))
+            pitch_data.append(pitch)
+            setpitch_data.append(setPitch)
+            u_data.append(u)
 
-        csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D']])
-        
-        line1.set_data(x_data, pitch_data)
-        line2.set_data(x_data, setpitch_data)
-        line3.set_data(x_data, u_data)
-        
-        xlim_max = max(100, len(x_data))
-        ax1.set_xlim(0, xlim_max)
-        ax2.set_xlim(0, xlim_max)
-        
-        return line1, line2, line3
+            csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D']])
+            
+            line1.set_data(x_data, pitch_data)
+            line2.set_data(x_data, setpitch_data)
+            line3.set_data(x_data, u_data)
+            
+            xlim_max = max(100, len(x_data))
+            ax1.set_xlim(0, xlim_max)
+            ax2.set_xlim(0, xlim_max)
+            
+            return line1, line2, line3
+    except socket.timeout:
+        pass
+    except Exception as e:
+        print(f"Socket error: {e}")
     
     return line1, line2, line3
 
@@ -91,18 +97,19 @@ def send_p_gain(val):
     pid_values['P'] = float(val)
     p_entry.delete(0, tk.END)
     p_entry.insert(0, f"{float(val):.1f}")
-    send_pid_values()
 
 def send_i_gain(val):
     pid_values['I'] = float(val)
     i_entry.delete(0, tk.END)
     i_entry.insert(0, f"{float(val):.1f}")
-    send_pid_values()
 
 def send_d_gain(val):
     pid_values['D'] = float(val)
     d_entry.delete(0, tk.END)
     d_entry.insert(0, f"{float(val):.1f}")
+
+def send_pid_button_click():
+    """Send PID values when button is clicked"""
     send_pid_values()
 
 def on_p_entry_change(event):
@@ -111,7 +118,6 @@ def on_p_entry_change(event):
         if 0.0 <= val <= 40.0:
             p_scale.set(val)
             pid_values['P'] = val
-            send_pid_values()
     except ValueError:
         pass
 
@@ -121,7 +127,6 @@ def on_i_entry_change(event):
         if 0.0 <= val <= 10.0:
             i_scale.set(val)
             pid_values['I'] = val
-            send_pid_values()
     except ValueError:
         pass
 
@@ -131,7 +136,6 @@ def on_d_entry_change(event):
         if 0.0 <= val <= 10.0:
             d_scale.set(val)
             pid_values['D'] = val
-            send_pid_values()
     except ValueError:
         pass
 
@@ -184,6 +188,14 @@ d_scale.pack()
 d_entry = tk.Entry(d_frame, width=8)
 d_entry.pack(pady=5)
 
+# Send PID button
+send_button_frame = tk.Frame(root)
+send_button_frame.pack(pady=10)
+
+send_button = tk.Button(send_button_frame, text="Send PID Parameters", command=send_pid_button_click, 
+                       bg="lightgreen", font=("Arial", 12, "bold"), padx=20, pady=5)
+send_button.pack()
+
 # Bind entry fields to update functions
 p_entry.bind('<Return>', on_p_entry_change)
 p_entry.bind('<FocusOut>', on_p_entry_change)
@@ -200,6 +212,6 @@ canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.draw()
 canvas.get_tk_widget().pack()
 
-ani = animation.FuncAnimation(fig, update, blit=True, interval=50)
+ani = animation.FuncAnimation(fig, update, blit=True, interval=50, cache_frame_data=False)
 
 root.mainloop()
