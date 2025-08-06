@@ -8,7 +8,7 @@
 
 static const char *TAG = "wifi";
 #define WIFI_SSID "FunBox-22B9"
-#define WIFI_PASS "domek1234"
+#define WIFI_PASS "F3A3235C2D9632643E1E27CC73"
 #define MAX_RETRIES 10
 
 bool wifi_connected = false;
