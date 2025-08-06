@@ -143,9 +143,8 @@ def on_d_entry_change(event):
 root = tk.Tk()
 root.title("PID Control")
 
-# Create tkinter variables after root window exists
 save_to_csv = tk.BooleanVar()
-save_to_csv.set(True)  # Default to enabled
+save_to_csv.set(True)
 
 def on_closing():
     if save_to_csv.get() and len(csv_data) > 0:

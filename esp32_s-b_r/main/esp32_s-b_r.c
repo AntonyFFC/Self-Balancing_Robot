@@ -15,9 +15,7 @@
 #include "nvs_flash.h"
 #include "cJSON.h"
 
-#define DESTINATION_IP "192.168.1.23"
-#define DESTINATION_PORT 7777
-#define LISTEN_PORT 7778
+#define PYTHON_PLOTTER_DEBUG           CONFIG_PYTHON_PLOTTER_DEBUG
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -25,51 +23,27 @@
 
 static const char *TAG = "self-balancing-robot";
 
-#define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
-#define I2C_MASTER_SDA_IO           21      /*!< GPIO number used for I2C master data  */
-#define I2C_MASTER_NUM              0                          /*!< I2C master i2c port number, the number of i2c peripheral interfaces available will depend on the chip */
-#define I2C_MASTER_TIMEOUT_MS       100
-#define I2C_MASTER_FREQ_HZ          400000   
-#define I2C_MASTER_TX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */ 
-
-// #define ACC_I2C_ADDR (0b1101000 << 1)
-#define ACC_I2C_ADDR 0x68          /*!< I2C address of MPU6050 accelerometer/gyroscope NOT SHIFTED, only 7 bit*/
-#define ACCEL_START_REG 0x3B
-#define GYRO_START_REG 0x43
-#define WHO_AM_I_REG 0x75
-
-#define LEDC_TIMER              LEDC_TIMER_0
-#define LEDC_MODE               LEDC_LOW_SPEED_MODE
-#define LEDC_OUTPUT_IO          12 // Define the output GPIO
-#define LEDC_CHANNEL            LEDC_CHANNEL_0
-#define LEDC_DUTY_RES           LEDC_TIMER_14_BIT // Set duty resolution to 14 bits
-#define LEDC_MAX_DUTY           16383 // Maximum duty cycle value
-#define LEDC_DUTY               8191 // Set duty to 50%. ((2 ** 14) - 1) * 50% = 8191
-#define LEDC_FREQUENCY          500 // Frequency in Hertz. Set frequency at 500 Hz
-
-#define L298N_ENA_GPIO LEDC_OUTPUT_IO
-#define L298N_IN1_GPIO 14
-#define L298N_IN2_GPIO 27
-
-#define UDP_QUEUE_LEN 10
-#define UDP_MSG_MAX_LEN 128
-
-// static QueueHandle_t udp_queue;
-
+// Global variables for PID control and robot state
 static float pid_K = 2.5f;
 static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
-
 static float pitch = 0.0f, setPitch = 0.0f, u;
 
-#define TASK_PERIOD_MS 10   /*!< Task period in milliseconds */
-#define UDP_SENDER_TASK_PERIOD_MS 200 /*!< UDP sender task period in milliseconds */
+// ============================================================================
+// UDP DEBUG SECTION - UDP/Python plotter debug functionality
+// ============================================================================
+#if PYTHON_PLOTTER_DEBUG
 
+#define DESTINATION_IP "192.168.1.23"
+#define DESTINATION_PORT 7777
+#define LISTEN_PORT 7778
+#define UDP_MSG_MAX_LEN 128
+#define UDP_SENDER_TASK_PERIOD_MS 200
+
+// UDP global variables
 int udp_sock;
 struct sockaddr_in dest_addr;
-int udp_listen_sock; 
-
+int udp_listen_sock;
 extern bool wifi_connected;
 
 esp_err_t my_udp_init(void) {
@@ -139,6 +113,80 @@ static void udp_send_data(const char *data) {
     //     ESP_LOGI(TAG, "Data sent successfully: %s", data);
     // }
 }
+
+// PID command parsing function
+void parse_pid_command(const char* cmd) {
+    float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
+    bool updated = false;
+    
+    // Parse P value
+    char* p_pos = strstr(cmd, "P=");
+    if (p_pos != NULL) {
+        new_P = atof(p_pos + 2);
+        updated = true;
+    }
+    
+    // Parse I value
+    char* i_pos = strstr(cmd, "I=");
+    if (i_pos != NULL) {
+        float i_val = atof(i_pos + 2);
+        new_I = i_val;
+        updated = true;
+    }
+    
+    // Parse D value
+    char* d_pos = strstr(cmd, "D=");
+    if (d_pos != NULL) {
+        new_D = atof(d_pos + 2);
+        updated = true;
+    }
+    
+    if (updated) {
+        pid_K = new_P;
+        pid_Ti = (new_I != 0.0f) ? (1.0f / new_I) : 900000.0f;
+        pid_Td = new_D;
+        ESP_LOGI(TAG, "PID updated: P=%.3f, I=%.6f, D=%.3f (Ti=%.1f)", 
+                 pid_K, new_I, pid_Td, pid_Ti);
+    }
+}
+
+void init_debug_features(void) {
+    ESP_ERROR_CHECK(my_udp_init());
+    ESP_ERROR_CHECK(udp_server_init());
+    ESP_LOGI(TAG, "UDP debug features enabled");
+}
+
+#endif // PYTHON_PLOTTER_DEBUG
+// ============================================================================
+
+#define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
+#define I2C_MASTER_SDA_IO           21      /*!< GPIO number used for I2C master data  */
+#define I2C_MASTER_NUM              0                          /*!< I2C master i2c port number, the number of i2c peripheral interfaces available will depend on the chip */
+#define I2C_MASTER_TIMEOUT_MS       100
+#define I2C_MASTER_FREQ_HZ          400000   
+#define I2C_MASTER_TX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
+#define I2C_MASTER_RX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */ 
+
+// #define ACC_I2C_ADDR (0b1101000 << 1)
+#define ACC_I2C_ADDR 0x68          /*!< I2C address of MPU6050 accelerometer/gyroscope NOT SHIFTED, only 7 bit*/
+#define ACCEL_START_REG 0x3B
+#define GYRO_START_REG 0x43
+#define WHO_AM_I_REG 0x75
+
+#define LEDC_TIMER              LEDC_TIMER_0
+#define LEDC_MODE               LEDC_LOW_SPEED_MODE
+#define LEDC_OUTPUT_IO          12 // Define the output GPIO
+#define LEDC_CHANNEL            LEDC_CHANNEL_0
+#define LEDC_DUTY_RES           LEDC_TIMER_14_BIT // Set duty resolution to 14 bits
+#define LEDC_MAX_DUTY           16383 // Maximum duty cycle value
+#define LEDC_DUTY               8191 // Set duty to 50%. ((2 ** 14) - 1) * 50% = 8191
+#define LEDC_FREQUENCY          500 // Frequency in Hertz. Set frequency at 500 Hz
+
+#define L298N_ENA_GPIO LEDC_OUTPUT_IO
+#define L298N_IN1_GPIO 14
+#define L298N_IN2_GPIO 27
+
+#define TASK_PERIOD_MS 10   /*!< Task period in milliseconds */
 
 static void pwm_init(void)
 {
@@ -303,41 +351,6 @@ void stop()
 
 void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset);
 
-void parse_pid_command(const char* cmd) {
-    float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
-    bool updated = false;
-    
-    // Parse P value
-    char* p_pos = strstr(cmd, "P=");
-    if (p_pos != NULL) {
-        new_P = atof(p_pos + 2);
-        updated = true;
-    }
-    
-    // Parse I value
-    char* i_pos = strstr(cmd, "I=");
-    if (i_pos != NULL) {
-        float i_val = atof(i_pos + 2);
-        new_I = i_val;
-        updated = true;
-    }
-    
-    // Parse D value
-    char* d_pos = strstr(cmd, "D=");
-    if (d_pos != NULL) {
-        new_D = atof(d_pos + 2);
-        updated = true;
-    }
-    
-    if (updated) {
-        pid_K = new_P;
-        pid_Ti = (new_I != 0.0f) ? (1.0f / new_I) : 900000.0f;  // Zmiana z I na Ti
-        pid_Td = new_D;
-        ESP_LOGI(TAG, "PID updated: P=%.3f, I=%.6f, D=%.3f (Ti=%.1f)", 
-                 pid_K, new_I, pid_Td, pid_Ti);
-    }
-}
-
 void regular_100Hz_task(void *arg)
 {
     float accxf, accyf, acczf;
@@ -393,7 +406,6 @@ void regular_100Hz_task(void *arg)
 void udp_sender_task(void *arg)
 {
     char msg[UDP_MSG_MAX_LEN];
-
     float latest_pitch, latest_setPitch, latest_u;
     TickType_t last_wake_time = xTaskGetTickCount();
 
@@ -404,9 +416,6 @@ void udp_sender_task(void *arg)
         snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", latest_pitch, latest_setPitch, latest_u);
         udp_send_data(msg);
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(UDP_SENDER_TASK_PERIOD_MS));
-        // if (xQueueReceive(udp_queue, msg, portMAX_DELAY)) {
-        //     udp_send_data(msg);
-        // }
     }
 }
 
@@ -424,7 +433,7 @@ void udp_receiver_task(void *arg)
         }
         
         int len = recvfrom(udp_listen_sock, rx_buffer, sizeof(rx_buffer) - 1, 0, 
-                          (struct sockaddr *)&source_addr, &socklen);
+                        (struct sockaddr *)&source_addr, &socklen);
         
         if (len < 0) {
             ESP_LOGE(TAG, "recvfrom failed: errno %d", errno);
@@ -438,7 +447,6 @@ void udp_receiver_task(void *arg)
         inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
         
         ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
-        
         parse_pid_command(rx_buffer);
     }
 }
@@ -506,8 +514,12 @@ void app_main(void)
         ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
-    ESP_ERROR_CHECK(my_udp_init());
-    ESP_ERROR_CHECK(udp_server_init());
+    
+#if PYTHON_PLOTTER_DEBUG
+    init_debug_features();
+#else
+    ESP_LOGI(TAG, "UDP debug disabled");
+#endif
 
     pwm_init();
     motor_gpio_init();
@@ -518,7 +530,9 @@ void app_main(void)
     // }
 
     xTaskCreate(regular_100Hz_task, "100Hz_task", 4096, NULL, 5, NULL);
+    
+#if PYTHON_PLOTTER_DEBUG
     xTaskCreate(udp_sender_task, "udp_sender_task", 4096, NULL, 3, NULL);
     xTaskCreate(udp_receiver_task, "udp_receiver_task", 4096, NULL, 3, NULL);
-
+#endif
 }

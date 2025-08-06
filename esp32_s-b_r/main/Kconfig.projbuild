@@ -1,12 +1,10 @@
 menu "Example Configuration"
 
-    config SERIAL_STUDIO_DEBUG
-        bool "Enable log that can be parsed by Serial Studio"
+    config PYTHON_PLOTTER_DEBUG
+        bool "Enable sending data via UDP to PC for analizing"
         default "n"
         help
-            Enable this option, the example will print a string at runtime with a specific format,
-            which can be parsed by the Serial Studio tool.
-            With the "serial-studio-dashboard.json" template file provided in this example,
-            user can observe the speed in a curve window in the Serial Studio.
+            Enable this option, the program will send data through WI-FI using UDP to the PC, 
+            which can be read by a socket analyser.
 
 endmenu
