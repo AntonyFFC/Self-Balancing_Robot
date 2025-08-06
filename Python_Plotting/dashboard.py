@@ -64,7 +64,8 @@ def update(frame):
             setpitch_data.append(setPitch)
             u_data.append(u)
 
-            csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D']])
+            if save_to_csv.get():
+                csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D']])
             
             line1.set_data(x_data, pitch_data)
             line2.set_data(x_data, setpitch_data)
@@ -142,17 +143,26 @@ def on_d_entry_change(event):
 root = tk.Tk()
 root.title("PID Control")
 
+# Create tkinter variables after root window exists
+save_to_csv = tk.BooleanVar()
+save_to_csv.set(True)  # Default to enabled
+
 def on_closing():
-    print("Saving data to CSV...")
-    try:
-        with open(csv_filename, 'w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(['Time', 'Pitch', 'SetPitch', 'ControlSignal', 'P_Gain', 'I_Gain', 'D_Gain'])
-            writer.writerows(csv_data)
-        print(f"Data successfully saved to: {csv_filename}")
-        print(f"Total data points saved: {len(csv_data)}")
-    except Exception as e:
-        print(f"Error saving CSV file: {e}")
+    if save_to_csv.get() and len(csv_data) > 0:
+        print("Saving data to CSV...")
+        try:
+            with open(csv_filename, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(['Time', 'Pitch', 'SetPitch', 'ControlSignal', 'P_Gain', 'I_Gain', 'D_Gain'])
+                writer.writerows(csv_data)
+            print(f"Data successfully saved to: {csv_filename}")
+            print(f"Total data points saved: {len(csv_data)}")
+        except Exception as e:
+            print(f"Error saving CSV file: {e}")
+    elif save_to_csv.get() and len(csv_data) == 0:
+        print("No data to save - CSV logging was enabled but no data was collected.")
+    else:
+        print("CSV logging was disabled - no data saved.")
     
     root.destroy()
 
@@ -195,6 +205,14 @@ send_button_frame.pack(pady=10)
 send_button = tk.Button(send_button_frame, text="Send PID Parameters", command=send_pid_button_click, 
                        bg="lightgreen", font=("Arial", 12, "bold"), padx=20, pady=5)
 send_button.pack()
+
+# CSV saving checkbox
+csv_frame = tk.Frame(root)
+csv_frame.pack(pady=5)
+
+csv_checkbox = tk.Checkbutton(csv_frame, text="Save data to CSV file", variable=save_to_csv, 
+                             font=("Arial", 10))
+csv_checkbox.pack()
 
 # Bind entry fields to update functions
 p_entry.bind('<Return>', on_p_entry_change)
