@@ -167,7 +167,7 @@ void stop()
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance == TIM3){
-		const float dt = 0.1f; // pamietaj ze to jest 1/frequency timera
+		const float dt = 0.01f; // pamietaj ze to jest 1/frequency timera
 		float accxf, accyf, acczf;
 		float gyroxf, gyroyf, gyrozf;
 		static float pitch = 0.0f, setPitch = 0.0f, u; // setPitch = -86.6f
@@ -218,11 +218,11 @@ void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offse
     float sum_x = 0, sum_y = 0, sum_z = 0;
 
     for (int i = 0; i < samples; ++i) {
-        readGyroscope(&x, &y, &z);
+        readGyroscope(&hi2c1, &x, &y, &z);
         sum_x += x;
         sum_y += y;
         sum_z += z;
-        vTaskDelay(pdMS_TO_TICKS(2));
+        HAL_Delay(2);
     }
 
     *x_offset = sum_x / samples;
