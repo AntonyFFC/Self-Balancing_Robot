@@ -175,16 +175,22 @@ void init_debug_features(void) {
 
 #define LEDC_TIMER              LEDC_TIMER_0
 #define LEDC_MODE               LEDC_LOW_SPEED_MODE
-#define LEDC_OUTPUT_IO          12 // Define the output GPIO
+#define LEDC_OUTPUT_IO_1        33
 #define LEDC_CHANNEL            LEDC_CHANNEL_0
-#define LEDC_DUTY_RES           LEDC_TIMER_14_BIT // Set duty resolution to 14 bits
-#define LEDC_MAX_DUTY           16383 // Maximum duty cycle value
-#define LEDC_DUTY               8191 // Set duty to 50%. ((2 ** 14) - 1) * 50% = 8191
-#define LEDC_FREQUENCY          500 // Frequency in Hertz. Set frequency at 500 Hz
+#define LEDC_OUTPUT_IO_2        12
+#define LEDC_CHANNEL_2          LEDC_CHANNEL_1
+#define LEDC_DUTY_RES           LEDC_TIMER_14_BIT
+#define LEDC_MAX_DUTY           16383
+#define LEDC_DUTY               8191
+#define LEDC_FREQUENCY          500 
 
-#define L298N_ENA_GPIO LEDC_OUTPUT_IO
-#define L298N_IN1_GPIO 14
-#define L298N_IN2_GPIO 27
+#define L298N_ENA_GPIO LEDC_OUTPUT_IO_1
+#define L298N_IN1_GPIO 25
+#define L298N_IN2_GPIO 26
+#define L298N_IN3_GPIO 27
+#define L298N_IN4_GPIO 14
+#define L298N_ENB_GPIO LEDC_OUTPUT_IO_2
+
 
 #define TASK_PERIOD_MS 10   /*!< Task period in milliseconds */
 
@@ -199,16 +205,27 @@ static void pwm_init(void)
     };
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
 
-    ledc_channel_config_t ledc_channel = {
+    ledc_channel_config_t ledc_channel1 = {
         .speed_mode     = LEDC_MODE,
-        .channel        = LEDC_CHANNEL,
+        .channel        = LEDC_CHANNEL_1,
         .timer_sel      = LEDC_TIMER,
         .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = LEDC_OUTPUT_IO,
+        .gpio_num       = LEDC_OUTPUT_IO_1,
         .duty           = 0,
         .hpoint         = 0
     };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel1));
+
+    ledc_channel_config_t ledc_channel_2 = {
+        .speed_mode     = LEDC_MODE,
+        .channel        = LEDC_CHANNEL_2,
+        .timer_sel      = LEDC_TIMER,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .gpio_num       = LEDC_OUTPUT_IO_2,
+        .duty           = 0,
+        .hpoint         = 0
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel_2));
 }
 
 static void motor_gpio_init(void)
@@ -216,13 +233,15 @@ static void motor_gpio_init(void)
     gpio_config_t io_conf = {};
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = (1ULL << L298N_IN1_GPIO) | (1ULL << L298N_IN2_GPIO);
+    io_conf.pin_bit_mask = (1ULL << L298N_IN1_GPIO) | (1ULL << L298N_IN2_GPIO) | (1ULL << L298N_IN3_GPIO) | (1ULL << L298N_IN4_GPIO);
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
     
     gpio_set_level(L298N_IN1_GPIO, 0);
     gpio_set_level(L298N_IN2_GPIO, 0);
+    gpio_set_level(L298N_IN3_GPIO, 0);
+    gpio_set_level(L298N_IN4_GPIO, 0);
 }
 
 static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
@@ -326,27 +345,42 @@ void forward(uint16_t pwm)
 {
     gpio_set_level(L298N_IN1_GPIO, 1);
     gpio_set_level(L298N_IN2_GPIO, 0);
+    gpio_set_level(L298N_IN3_GPIO, 1);
+    gpio_set_level(L298N_IN4_GPIO, 0);
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, pwm));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_1, pwm));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_1));
+
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_2, pwm));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_2));
 }
 
 void backward(uint16_t pwm)
 {
     gpio_set_level(L298N_IN1_GPIO, 0);
     gpio_set_level(L298N_IN2_GPIO, 1);
+    gpio_set_level(L298N_IN3_GPIO, 0);
+    gpio_set_level(L298N_IN4_GPIO, 1);
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, pwm));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_1, pwm));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_1));
+
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_2, pwm));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_2));
 }
 
 void stop()
 {
     gpio_set_level(L298N_IN1_GPIO, 0);
     gpio_set_level(L298N_IN2_GPIO, 0);
+    gpio_set_level(L298N_IN3_GPIO, 0);
+    gpio_set_level(L298N_IN4_GPIO, 0);
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_1, 0));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_1));
+
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_2, 0));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_2));
 }
 
 void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset);
