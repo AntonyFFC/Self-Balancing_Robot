@@ -28,6 +28,9 @@ static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
 static float pitch = 0.0f, setPitch = 0.0f, u;
 
+// Motor deadband compensation parameters
+static float min_pwm_percent = 22.0f;  // Minimum PWM percentage for motor movement
+
 // ============================================================================
 // UDP DEBUG SECTION - UDP/Python plotter debug functionality
 // ============================================================================
@@ -126,6 +129,7 @@ static void udp_send_data(const char *data) {
 
 void parse_pid_command(const char* cmd) {
     float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
+    float new_min_pwm = min_pwm_percent;
     bool updated = false;
     
     char* p_pos = strstr(cmd, "P=");
@@ -147,12 +151,20 @@ void parse_pid_command(const char* cmd) {
         updated = true;
     }
     
+    // Add minimum PWM percentage tuning
+    char* mp_pos = strstr(cmd, "MP=");
+    if (mp_pos != NULL) {
+        new_min_pwm = atof(mp_pos + 3);
+        updated = true;
+    }
+    
     if (updated) {
         pid_K = new_P;
         pid_Ti = (new_I != 0.0f) ? (1.0f / new_I) : 900000.0f;
         pid_Td = new_D;
-        ESP_LOGI(TAG, "PID updated: P=%.3f, I=%.6f, D=%.3f (Ti=%.1f)", 
-                 pid_K, new_I, pid_Td, pid_Ti);
+        min_pwm_percent = new_min_pwm;
+        ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f, MP=%.1f%%", 
+                 pid_K, new_I, pid_Td, min_pwm_percent);
     }
 }
 
@@ -182,9 +194,9 @@ void init_debug_features(void) {
 #define LEDC_TIMER              LEDC_TIMER_0
 #define LEDC_MODE               LEDC_LOW_SPEED_MODE
 #define LEDC_OUTPUT_IO_1        33
-#define LEDC_CHANNEL            LEDC_CHANNEL_0
+#define LEDC_CHANNEL_n1          LEDC_CHANNEL_0
 #define LEDC_OUTPUT_IO_2        12
-#define LEDC_CHANNEL_2          LEDC_CHANNEL_1
+#define LEDC_CHANNEL_n2          LEDC_CHANNEL_1
 #define LEDC_DUTY_RES           LEDC_TIMER_14_BIT
 #define LEDC_MAX_DUTY           16383
 #define LEDC_DUTY               8191
@@ -213,7 +225,7 @@ static void pwm_init(void)
 
     ledc_channel_config_t ledc_channel1 = {
         .speed_mode     = LEDC_MODE,
-        .channel        = LEDC_CHANNEL_1,
+        .channel        = LEDC_CHANNEL_n1,
         .timer_sel      = LEDC_TIMER,
         .intr_type      = LEDC_INTR_DISABLE,
         .gpio_num       = LEDC_OUTPUT_IO_1,
@@ -224,7 +236,7 @@ static void pwm_init(void)
 
     ledc_channel_config_t ledc_channel_2 = {
         .speed_mode     = LEDC_MODE,
-        .channel        = LEDC_CHANNEL_2,
+        .channel        = LEDC_CHANNEL_n2,
         .timer_sel      = LEDC_TIMER,
         .intr_type      = LEDC_INTR_DISABLE,
         .gpio_num       = LEDC_OUTPUT_IO_2,
@@ -399,33 +411,43 @@ float PID(float y, float yzad)
 	return u;
 }
 
+// Motor deadband compensation function - maps control signal to 22-100% PWM range
+float compensate_motor_deadband(float control_signal, float max_control) {
+    float abs_control = fabs(control_signal);
+    float min_pwm = min_pwm_percent / 100.0f;  // Convert percentage to ratio
+    
+    return min_pwm + (abs_control / max_control) * (1.0f - min_pwm);
+}
 
-void forward(uint16_t pwm)
+
+void forward(float pwm_ratio)
 {
     gpio_set_level(L298N_IN1_GPIO, 1);
     gpio_set_level(L298N_IN2_GPIO, 0);
     gpio_set_level(L298N_IN3_GPIO, 1);
     gpio_set_level(L298N_IN4_GPIO, 0);
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_1, pwm));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_1));
+    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, pwm_duty));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1));
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_2, pwm));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_2));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, pwm_duty));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2));
 }
 
-void backward(uint16_t pwm)
+void backward(float pwm_ratio)
 {
     gpio_set_level(L298N_IN1_GPIO, 0);
     gpio_set_level(L298N_IN2_GPIO, 1);
     gpio_set_level(L298N_IN3_GPIO, 0);
     gpio_set_level(L298N_IN4_GPIO, 1);
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_1, pwm));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_1));
+    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, pwm_duty));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1));
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_2, pwm));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_2));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, pwm_duty));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2));
 }
 
 void stop()
@@ -435,11 +457,11 @@ void stop()
     gpio_set_level(L298N_IN3_GPIO, 0);
     gpio_set_level(L298N_IN4_GPIO, 0);
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_1, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_1));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, 0));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1));
 
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_2, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_2));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, 0));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2));
 }
 
 void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset);
@@ -451,7 +473,7 @@ void regular_100Hz_task(void *arg)
     TickType_t last_wake_time = xTaskGetTickCount();
     float gx_offset, gy_offset, gz_offset;
     const float max_u = 250.0f;
-    static uint16_t pwm;
+    static float pwm_ratio;
     
     static uint32_t consecutive_failures = 0;
     const uint32_t max_consecutive_failures = 10;
@@ -510,15 +532,18 @@ void regular_100Hz_task(void *arg)
         u = PID(pitch, setPitch);
         if (u > max_u) u = max_u;
         if (u < -max_u) u = -max_u;
-        pwm = (uint16_t)((fabs(u)/max_u)*LEDC_MAX_DUTY);
+        
+        // Use deadband compensation to get PWM ratio (min pwm percentage to 1.0)
+        pwm_ratio = compensate_motor_deadband(u, max_u);
 
         if (consecutive_failures < max_consecutive_failures / 2) {
-            if (u > 5.0) {
-                backward(pwm);
-            } else if (u < -5.0) {
-                forward(pwm);
-            } else {
+            // Check if PWM signal is below 25%, then stop
+            if (pwm_ratio < 0.25f) {
                 stop();
+            } else if (u > 0) {
+                backward(pwm_ratio);
+            } else {
+                forward(pwm_ratio);
             }
         } else {
             stop();
