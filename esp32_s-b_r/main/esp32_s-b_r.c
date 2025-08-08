@@ -23,7 +23,6 @@
 
 static const char *TAG = "self-balancing-robot";
 
-// Global variables for PID control and robot state
 static float pid_K = 2.5f;
 static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
@@ -40,11 +39,22 @@ static float pitch = 0.0f, setPitch = 0.0f, u;
 #define UDP_MSG_MAX_LEN 128
 #define UDP_SENDER_TASK_PERIOD_MS 200
 
-// UDP global variables
 int udp_sock;
 struct sockaddr_in dest_addr;
 int udp_listen_sock;
 extern bool wifi_connected;
+
+static uint32_t total_i2c_errors = 0;
+
+static void udp_send_data(const char *data);
+
+static void send_i2c_error(const char* error_type, esp_err_t error_code) {
+    char error_msg[UDP_MSG_MAX_LEN];
+    total_i2c_errors++;
+    snprintf(error_msg, sizeof(error_msg), "I2C_ERROR:%s,code=0x%x,total=%lu\n", 
+             error_type, error_code, total_i2c_errors);
+    udp_send_data(error_msg);
+}
 
 esp_err_t my_udp_init(void) {
     if (!wifi_connected) {
@@ -114,19 +124,16 @@ static void udp_send_data(const char *data) {
     // }
 }
 
-// PID command parsing function
 void parse_pid_command(const char* cmd) {
     float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
     bool updated = false;
     
-    // Parse P value
     char* p_pos = strstr(cmd, "P=");
     if (p_pos != NULL) {
         new_P = atof(p_pos + 2);
         updated = true;
     }
     
-    // Parse I value
     char* i_pos = strstr(cmd, "I=");
     if (i_pos != NULL) {
         float i_val = atof(i_pos + 2);
@@ -134,7 +141,6 @@ void parse_pid_command(const char* cmd) {
         updated = true;
     }
     
-    // Parse D value
     char* d_pos = strstr(cmd, "D=");
     if (d_pos != NULL) {
         new_D = atof(d_pos + 2);
@@ -192,7 +198,7 @@ void init_debug_features(void) {
 #define L298N_ENB_GPIO LEDC_OUTPUT_IO_2
 
 
-#define TASK_PERIOD_MS 10   /*!< Task period in milliseconds */
+#define TASK_PERIOD_MS 10
 
 static void pwm_init(void)
 {
@@ -246,16 +252,40 @@ static void motor_gpio_init(void)
 
 static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
 {
-    return i2c_master_write_read_device(I2C_MASTER_NUM, ACC_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, ACC_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    
+    if (ret == ESP_ERR_TIMEOUT) {
+        ESP_LOGI(TAG, "I2C read timeout, attempting bus recovery");
+        #if PYTHON_PLOTTER_DEBUG
+        send_i2c_error("READ_TIMEOUT", ret);
+        #endif
+        vTaskDelay(pdMS_TO_TICKS(2));
+    } else if (ret != ESP_OK) {
+        #if PYTHON_PLOTTER_DEBUG
+        send_i2c_error("READ_ERROR", ret);
+        #endif
+    }
+    
+    return ret;
 }
 
 static esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t data)
 {
-    int ret;
     uint8_t write_buf[2] = {reg_addr, data};
-
-    ret = i2c_master_write_to_device(I2C_MASTER_NUM, ACC_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
-
+    esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, ACC_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    
+    if (ret == ESP_ERR_TIMEOUT) {
+        ESP_LOGI(TAG, "I2C write timeout");
+        #if PYTHON_PLOTTER_DEBUG
+        send_i2c_error("WRITE_TIMEOUT", ret);
+        #endif
+        vTaskDelay(pdMS_TO_TICKS(2));
+    } else if (ret != ESP_OK) {
+        #if PYTHON_PLOTTER_DEBUG
+        send_i2c_error("WRITE_ERROR", ret);
+        #endif
+    }
+    
     return ret;
 }
 
@@ -279,18 +309,47 @@ static esp_err_t i2c_master_init(void)
 
 void read3dData(float* x, float* y, float* z, float rangeFactor, uint8_t startReg)
 {
-	  int16_t rawX,rawY,rawZ;
-	  uint8_t i2c_receive8bit_buf[6];
-	  const uint8_t bytes_to_receive = 6;
+    int16_t rawX, rawY, rawZ;
+    uint8_t i2c_receive8bit_buf[6];
+    const uint8_t bytes_to_receive = 6;
+    esp_err_t ret;
+    int retry_count = 0;
+    const int max_retries = 3;
 
-    ESP_ERROR_CHECK(mpu6050_register_read(startReg, i2c_receive8bit_buf, bytes_to_receive));
-	  rawX = (int16_t)(i2c_receive8bit_buf[0]<<8 | i2c_receive8bit_buf[1]);
-	  rawY = (int16_t)(i2c_receive8bit_buf[2]<<8 | i2c_receive8bit_buf[3]);
-	  rawZ = (int16_t)(i2c_receive8bit_buf[4]<<8 | i2c_receive8bit_buf[5]);
+    do {
+        ret = mpu6050_register_read(startReg, i2c_receive8bit_buf, bytes_to_receive);
+        if (ret == ESP_OK) {
+            break;
+        }
+        
+        if (ret == ESP_ERR_TIMEOUT) {
+            ESP_LOGI(TAG, "I2C timeout on read attempt %d, retrying...", retry_count + 1);
+            vTaskDelay(pdMS_TO_TICKS(1));
+        } else {
+            ESP_LOGE(TAG, "I2C read error: 0x%x on attempt %d", ret, retry_count + 1);
+        }
+        
+        retry_count++;
+    } while (retry_count < max_retries);
 
-	  *x = (float)rawX/pow(2,15)*rangeFactor;
-	  *y = (float)rawY/pow(2,15)*rangeFactor;
-	  *z = (float)rawZ/pow(2,15)*rangeFactor;
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read sensor data after %d retries, using zeros", max_retries);
+        #if PYTHON_PLOTTER_DEBUG
+        send_i2c_error("SENSOR_READ_FAILED", ret);
+        #endif
+        *x = 0.0f;
+        *y = 0.0f; 
+        *z = 0.0f;
+        return;
+    }
+
+    rawX = (int16_t)(i2c_receive8bit_buf[0] << 8 | i2c_receive8bit_buf[1]);
+    rawY = (int16_t)(i2c_receive8bit_buf[2] << 8 | i2c_receive8bit_buf[3]);
+    rawZ = (int16_t)(i2c_receive8bit_buf[4] << 8 | i2c_receive8bit_buf[5]);
+
+    *x = (float)rawX / pow(2, 15) * rangeFactor;
+    *y = (float)rawY / pow(2, 15) * rangeFactor;
+    *z = (float)rawZ / pow(2, 15) * rangeFactor;
 }
 
 void readAccelerometer(float* x, float* y, float* z)
@@ -389,49 +448,81 @@ void regular_100Hz_task(void *arg)
 {
     float accxf, accyf, acczf;
     float gyroxf, gyroyf, gyrozf;
-    // static float pitch = 0.0f, setPitch = 0.0f, u;
     TickType_t last_wake_time = xTaskGetTickCount();
     float gx_offset, gy_offset, gz_offset;
     const float max_u = 250.0f;
     static uint16_t pwm;
-    // char msg[UDP_MSG_MAX_LEN];
+    
+    static uint32_t consecutive_failures = 0;
+    const uint32_t max_consecutive_failures = 10;
 
-    calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
+    // calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
+    gx_offset = -4.084f; // offsets calculated from previous calibrations
+    gy_offset = -0.798f;
+    gz_offset = 0.077f;
 
     while (true) {
+        bool sensor_read_success = true;
+        
+        static float prev_accxf = 0.0f, prev_accyf = 0.0f, prev_acczf = 0.0f;
+        static float prev_gyroxf = 0.0f, prev_gyroyf = 0.0f, prev_gyrozf = 0.0f;
+        
         readAccelerometer(&accxf, &accyf, &acczf);
-		readGyroscope(&gyroxf, &gyroyf, &gyrozf);
-        // printf("%0.2f,%0.2f,%0.2f\n", accxf, accyf, acczf);
+        if (accxf == 0.0f && accyf == 0.0f && acczf == 0.0f) {
+            sensor_read_success = false;
+            accxf = prev_accxf;
+            accyf = prev_accyf;
+            acczf = prev_acczf;
+        } else {
+            prev_accxf = accxf;
+            prev_accyf = accyf;
+            prev_acczf = acczf;
+        }
+        
+        readGyroscope(&gyroxf, &gyroyf, &gyrozf);
+        if (gyroxf == 0.0f && gyroyf == 0.0f && gyrozf == 0.0f) {
+            sensor_read_success = false;
+            gyroxf = prev_gyroxf;
+            gyroyf = prev_gyroyf;
+            gyrozf = prev_gyrozf;
+        } else {
+            prev_gyroxf = gyroxf;
+            prev_gyroyf = gyroyf;
+            prev_gyrozf = gyrozf;
+        }
+
+        if (!sensor_read_success) {
+            consecutive_failures++;
+            ESP_LOGI(TAG, "Sensor read failed, using previous values (%lu consecutive failures)", consecutive_failures);
+            
+            if (consecutive_failures > max_consecutive_failures) {
+                ESP_LOGE(TAG, "Too many sensor failures, stopping robot for safety");
+                stop();
+                vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
+                continue;
+            }
+        } else {
+            consecutive_failures = 0;
+        }
 
         calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
-        // snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", pitch, setPitch, u);
-        // xQueueSend(udp_queue, msg, 0);
 
         u = PID(pitch, setPitch);
-		if (u > max_u) u = max_u;
-		if (u < -max_u) u = -max_u;
+        if (u > max_u) u = max_u;
+        if (u < -max_u) u = -max_u;
         pwm = (uint16_t)((fabs(u)/max_u)*LEDC_MAX_DUTY);
 
-        if (u > 5.0)
-		{
-			forward(pwm);
-            // ESP_LOGI(TAG, "Forward with duty cycle: %4d", pwm);
-        }
-        else if (u < -5.0)
-        {
-            backward(pwm);
-            // ESP_LOGI(TAG, "Backward with duty cycle: %4d", pwm);
-        }
-        else
-        {
+        if (consecutive_failures < max_consecutive_failures / 2) {
+            if (u > 5.0) {
+                backward(pwm);
+            } else if (u < -5.0) {
+                forward(pwm);
+            } else {
+                stop();
+            }
+        } else {
             stop();
-            // ESP_LOGI(TAG, "Stop");
-		}
-
-        // ESP_LOGI(TAG, "Pitch: %3.2f, SetPitch: %3.2f, Control Signal: %3.2f", pitch, setPitch, u);
-        // ESP_LOGI(TAG, "Pitch: %3.2f", pitch);
-        // ESP_LOGI(TAG, "ACCEL xf: %3.2f g, yf: %3.2f g, zf: %3.2f g", accxf, accyf, acczf);
-        // ESP_LOGI(TAG, "GYRO xf: %3.2f g, yf: %3.2f g, zf: %3.2f g", gyroxf, gyroyf, gyrozf);
+        }
 
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
     }
