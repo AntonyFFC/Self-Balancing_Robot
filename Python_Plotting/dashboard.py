@@ -50,6 +50,13 @@ ax1.legend()
 ax1.grid(True)
 ax1.set_title("Pitch vs Set Pitch")
 
+pitch_text = ax1.text(0.02, 0.95, 'Pitch: -- °', transform=ax1.transAxes, 
+                     bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.7),
+                     fontsize=10, verticalalignment='top')
+setpitch_text = ax1.text(0.02, 0.85, 'Set Pitch: -- °', transform=ax1.transAxes,
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral", alpha=0.7),
+                        fontsize=10, verticalalignment='top')
+
 # Control Signal plot
 line3, = ax2.plot([], [], 'g-', label='Control Signal (u)', linewidth=2)
 ax2.set_ylim(-250, 250)
@@ -60,6 +67,11 @@ ax2.legend()
 ax2.grid(True)
 ax2.set_title("Control Signal")
 
+
+control_text = ax2.text(0.02, 0.95, 'Control Signal: --', transform=ax2.transAxes,
+                       bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.7),
+                       fontsize=10, verticalalignment='top')
+
 def update(frame):
     global x_data, pitch_data, setpitch_data, u_data
     try:
@@ -68,7 +80,7 @@ def update(frame):
         
         if message.startswith("I2C_ERROR:"):
             parse_error_message(message)
-            return line1, line2, line3
+            return line1, line2, line3, pitch_text, setpitch_text, control_text
         
         values = message.split(",")
         
@@ -93,11 +105,15 @@ def update(frame):
                 x_data = [i for i in range(len(x_data))]
 
             if save_to_csv.get():
-                csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D']])
+                csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D'], pid_values['MP']])
             
             line1.set_data(x_data, pitch_data)
             line2.set_data(x_data, setpitch_data)
             line3.set_data(x_data, u_data)
+            
+            pitch_text.set_text(f'Pitch: {pitch:.1f}°')
+            setpitch_text.set_text(f'Set Pitch: {setPitch:.1f}°')
+            control_text.set_text(f'Control Signal: {u:.1f}')
             
             ax1.set_xlim(0, 500)
             ax2.set_xlim(0, 500)
@@ -107,7 +123,7 @@ def update(frame):
     except Exception as e:
         print(f"Socket error: {e}")
     
-    return line1, line2, line3
+    return line1, line2, line3, pitch_text, setpitch_text, control_text
 
 def parse_error_message(message):
     global total_errors, last_error_time, last_error_code
@@ -187,10 +203,10 @@ def reset_error_display():
     except:
         pass
 
-pid_values = {'P': 0.0, 'I': 0.0, 'D': 0.0}
+pid_values = {'P': 0.0, 'I': 0.0, 'D': 0.0, 'MP': 0.0}
 
 def send_pid_values():
-    cmd = f"P={pid_values['P']},I={pid_values['I']},D={pid_values['D']}\n"
+    cmd = f"P={pid_values['P']},I={pid_values['I']},D={pid_values['D']},MP={pid_values['MP']}\n"
     print(f"Sending command '{cmd.strip()}' to {ESP_IP}:{ESP_PORT}")
     try:
         send_sock.sendto(cmd.encode(), (ESP_IP, ESP_PORT))
@@ -212,6 +228,11 @@ def send_d_gain(val):
     pid_values['D'] = float(val)
     d_entry.delete(0, tk.END)
     d_entry.insert(0, f"{float(val):.1f}")
+
+def send_min_pwm(val):
+    pid_values['MP'] = float(val)
+    mp_entry.delete(0, tk.END)
+    mp_entry.insert(0, f"{float(val):.1f}")
 
 def send_pid_button_click():
     send_pid_values()
@@ -243,6 +264,15 @@ def on_d_entry_change(event):
     except ValueError:
         pass
 
+def on_mp_entry_change(event):
+    try:
+        val = float(mp_entry.get())
+        if 0.0 <= val <= 100.0:
+            mp_scale.set(val)
+            pid_values['MP'] = val
+    except ValueError:
+        pass
+
 root = tk.Tk()
 root.title("PID Control")
 
@@ -255,7 +285,7 @@ def on_closing():
         try:
             with open(csv_filename, 'w', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(['Time', 'Pitch', 'SetPitch', 'ControlSignal', 'P_Gain', 'I_Gain', 'D_Gain'])
+                writer.writerow(['Time', 'Pitch', 'SetPitch', 'ControlSignal', 'P_Gain', 'I_Gain', 'D_Gain', 'Min_PWM_Percent'])
                 writer.writerows(csv_data)
             print(f"Data successfully saved to: {csv_filename}")
             print(f"Total data points saved: {len(csv_data)}")
@@ -299,6 +329,15 @@ d_scale = tk.Scale(d_frame, from_=10.0, to=0.0, resolution=0.1, orient=tk.VERTIC
 d_scale.pack()
 d_entry = tk.Entry(d_frame, width=8)
 d_entry.pack(pady=5)
+
+# Minimum PWM controls
+mp_frame = tk.Frame(pid_frame)
+mp_frame.pack(side=tk.LEFT, padx=10)
+tk.Label(mp_frame, text="Min PWM %").pack()
+mp_scale = tk.Scale(mp_frame, from_=100.0, to=0.0, resolution=0.1, orient=tk.VERTICAL, command=send_min_pwm)
+mp_scale.pack()
+mp_entry = tk.Entry(mp_frame, width=8)
+mp_entry.pack(pady=5)
 
 # Send PID button
 send_button_frame = tk.Frame(root)
@@ -353,10 +392,13 @@ i_entry.bind('<Return>', on_i_entry_change)
 i_entry.bind('<FocusOut>', on_i_entry_change)
 d_entry.bind('<Return>', on_d_entry_change)
 d_entry.bind('<FocusOut>', on_d_entry_change)
+mp_entry.bind('<Return>', on_mp_entry_change)
+mp_entry.bind('<FocusOut>', on_mp_entry_change)
 
 p_entry.insert(0, "0.0")
 i_entry.insert(0, "0.0")
 d_entry.insert(0, "0.0")
+mp_entry.insert(0, "0.0")
 
 canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.draw()
