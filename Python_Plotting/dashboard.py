@@ -6,6 +6,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import csv
 import datetime
 
+max_length = 500
+
 UDP_IP = "0.0.0.0"
 UDP_PORT = 7777
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -25,13 +27,24 @@ csv_data = []
 start_time = datetime.datetime.now()
 csv_filename = f"pid_data_{start_time.strftime('%Y%m%d_%H%M%S')}.csv"
 
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8))
+error_counts = {
+    'READ_TIMEOUT': 0,
+    'WRITE_TIMEOUT': 0,
+    'READ_ERROR': 0,
+    'WRITE_ERROR': 0,
+    'SENSOR_READ_FAILED': 0
+}
+total_errors = 0
+last_error_time = ""
+last_error_code = ""
+
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
 
 # Pitch comparison plot
 line1, = ax1.plot([], [], 'b-', label='Pitch', linewidth=2)
 line2, = ax1.plot([], [], 'r-', label='Set Pitch', linewidth=2)
-ax1.set_ylim(-90, 90)
-ax1.set_xlim(0, 100)
+ax1.set_ylim(-60, 60)
+ax1.set_xlim(0, 500)
 ax1.set_ylabel("Pitch (degrees)")
 ax1.legend()
 ax1.grid(True)
@@ -40,7 +53,7 @@ ax1.set_title("Pitch vs Set Pitch")
 # Control Signal plot
 line3, = ax2.plot([], [], 'g-', label='Control Signal (u)', linewidth=2)
 ax2.set_ylim(-250, 250)
-ax2.set_xlim(0, 100)
+ax2.set_xlim(0, 500)
 ax2.set_ylabel("Control Signal")
 ax2.set_xlabel("Time")
 ax2.legend()
@@ -48,9 +61,16 @@ ax2.grid(True)
 ax2.set_title("Control Signal")
 
 def update(frame):
+    global x_data, pitch_data, setpitch_data, u_data
     try:
         data, addr = sock.recvfrom(1024)
-        values = data.decode().strip().split(",")
+        message = data.decode().strip()
+        
+        if message.startswith("I2C_ERROR:"):
+            parse_error_message(message)
+            return line1, line2, line3
+        
+        values = message.split(",")
         
         if len(values) >= 3:
             pitch = float(values[0])
@@ -64,6 +84,14 @@ def update(frame):
             setpitch_data.append(setPitch)
             u_data.append(u)
 
+            if len(x_data) > 500:
+                x_data.pop(0)
+                pitch_data.pop(0)
+                setpitch_data.pop(0)
+                u_data.pop(0)
+                
+                x_data = [i for i in range(len(x_data))]
+
             if save_to_csv.get():
                 csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D']])
             
@@ -71,17 +99,93 @@ def update(frame):
             line2.set_data(x_data, setpitch_data)
             line3.set_data(x_data, u_data)
             
-            xlim_max = max(100, len(x_data))
-            ax1.set_xlim(0, xlim_max)
-            ax2.set_xlim(0, xlim_max)
+            ax1.set_xlim(0, 500)
+            ax2.set_xlim(0, 500)
             
-            return line1, line2, line3
     except socket.timeout:
         pass
     except Exception as e:
         print(f"Socket error: {e}")
     
     return line1, line2, line3
+
+def parse_error_message(message):
+    global total_errors, last_error_time, last_error_code
+    
+    try:
+        # np Parse: "I2C_ERROR:READ_TIMEOUT,code=0x107,total=5"
+        parts = message.split(":")
+        if len(parts) >= 2:
+            error_info = parts[1]
+            error_parts = error_info.split(",")
+            
+            if len(error_parts) >= 3:
+                error_type = error_parts[0]
+                code_part = error_parts[1] 
+                total_part = error_parts[2]
+                
+                if "=" in code_part:
+                    last_error_code = code_part.split("=")[1]
+                
+                if "=" in total_part:
+                    esp_total = int(total_part.split("=")[1])
+                    total_errors = esp_total
+                
+                if error_type in error_counts:
+                    error_counts[error_type] += 1
+                
+                last_error_time = datetime.datetime.now().strftime("%H:%M:%S")
+                
+                update_error_display()
+                
+                print(f"I2C Error: {error_type}, Code: {last_error_code}, Total: {total_errors}")
+                
+    except Exception as e:
+        print(f"Error parsing error message: {e}")
+
+def update_error_display():
+    try:
+        total_label.config(text=f"Total Errors: {total_errors}")
+        last_error_label.config(text=f"Last Error: {last_error_time}")
+        error_code_label.config(text=f"Last Code: {last_error_code}")
+        
+        read_timeout_label.config(text=f"Read Timeouts: {error_counts['READ_TIMEOUT']}")
+        write_timeout_label.config(text=f"Write Timeouts: {error_counts['WRITE_TIMEOUT']}")
+        read_error_label.config(text=f"Read Errors: {error_counts['READ_ERROR']}")
+        write_error_label.config(text=f"Write Errors: {error_counts['WRITE_ERROR']}")
+        sensor_error_label.config(text=f"Sensor Failures: {error_counts['SENSOR_READ_FAILED']}")
+        
+        flash_error_display()
+    except:
+        pass
+
+def flash_error_display():
+    try:
+        error_labels = [
+            total_label, last_error_label, error_code_label,
+            read_timeout_label, write_timeout_label, read_error_label,
+            write_error_label, sensor_error_label
+        ]
+        
+        for label in error_labels:
+            label.config(bg="red", fg="white")
+
+        root.after(1000, reset_error_display)
+    except:
+        pass
+
+def reset_error_display():
+    try:
+        error_labels = [
+            total_label, last_error_label, error_code_label,
+            read_timeout_label, write_timeout_label, read_error_label,
+            write_error_label, sensor_error_label
+        ]
+        
+        for label in error_labels:
+            label.config(bg=root.cget('bg'), fg="black")
+    except:
+        pass
 
 pid_values = {'P': 0.0, 'I': 0.0, 'D': 0.0}
 
@@ -110,7 +214,6 @@ def send_d_gain(val):
     d_entry.insert(0, f"{float(val):.1f}")
 
 def send_pid_button_click():
-    """Send PID values when button is clicked"""
     send_pid_values()
 
 def on_p_entry_change(event):
@@ -213,7 +316,37 @@ csv_checkbox = tk.Checkbutton(csv_frame, text="Save data to CSV file", variable=
                              font=("Arial", 10))
 csv_checkbox.pack()
 
-# Bind entry fields to update functions
+# Error information display
+error_frame = tk.Frame(root)
+error_frame.pack(pady=10, fill=tk.X)
+
+error_title = tk.Label(error_frame, text="I2C Error Information", font=("Arial", 12, "bold"))
+error_title.pack()
+
+error_left_frame = tk.Frame(error_frame)
+error_left_frame.pack(side=tk.LEFT, padx=20)
+error_right_frame = tk.Frame(error_frame)
+error_right_frame.pack(side=tk.LEFT, padx=20)
+
+total_label = tk.Label(error_left_frame, text="Total Errors: 0", font=("Arial", 10))
+total_label.pack(anchor=tk.W)
+last_error_label = tk.Label(error_left_frame, text="Last Error: None", font=("Arial", 10))
+last_error_label.pack(anchor=tk.W)
+error_code_label = tk.Label(error_left_frame, text="Last Code: None", font=("Arial", 10))
+error_code_label.pack(anchor=tk.W)
+
+read_timeout_label = tk.Label(error_right_frame, text="Read Timeouts: 0", font=("Arial", 10))
+read_timeout_label.pack(anchor=tk.W)
+write_timeout_label = tk.Label(error_right_frame, text="Write Timeouts: 0", font=("Arial", 10))
+write_timeout_label.pack(anchor=tk.W)
+
+read_error_label = tk.Label(error_right_frame, text="Read Errors: 0", font=("Arial", 10))
+read_error_label.pack(anchor=tk.W)
+write_error_label = tk.Label(error_right_frame, text="Write Errors: 0", font=("Arial", 10))
+write_error_label.pack(anchor=tk.W)
+sensor_error_label = tk.Label(error_right_frame, text="Sensor Failures: 0", font=("Arial", 10))
+sensor_error_label.pack(anchor=tk.W)
+
 p_entry.bind('<Return>', on_p_entry_change)
 p_entry.bind('<FocusOut>', on_p_entry_change)
 i_entry.bind('<Return>', on_i_entry_change)
