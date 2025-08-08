@@ -397,6 +397,21 @@ float PID(float y, float yzad)
 	static float e_1 = 0.0f;
 	static float e_2 = 0.0f;
 
+    static float last_K = 0.0f;
+    static float last_Ti = 0.0f;
+    static float last_Td = 0.0f;
+    
+    if (K != last_K || Ti != last_Ti || Td != last_Td) {
+        this_u = 0.0f;
+        e = 0.0f;
+        e_1 = 0.0f;
+        e_2 = 0.0f;
+        last_K = K;
+        last_Ti = Ti;
+        last_Td = Td;
+        ESP_LOGI(TAG, "PID controller reset due to parameter change");
+    }
+
 	const float r2 = (K*Td)/Tp;
 	const float r1 = K*((Tp/(2*Ti))-(2*Td/Tp)-1);
 	const float r0 = K*(1+(Tp/(2*Ti))+(Td/Tp));
