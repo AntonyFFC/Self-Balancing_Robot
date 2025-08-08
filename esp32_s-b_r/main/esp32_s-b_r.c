@@ -26,7 +26,7 @@ static const char *TAG = "self-balancing-robot";
 static float pid_K = 2.5f;
 static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
-static float pitch = 0.0f, setPitch = 0.0f, u;
+static float pitch = 0.0f, setPitch = 0.0f, u = 0.0f;
 
 // Motor deadband compensation parameters
 static float min_pwm_percent = 22.0f;  // Minimum PWM percentage for motor movement
@@ -151,7 +151,6 @@ void parse_pid_command(const char* cmd) {
         updated = true;
     }
     
-    // Add minimum PWM percentage tuning
     char* mp_pos = strstr(cmd, "MP=");
     if (mp_pos != NULL) {
         new_min_pwm = atof(mp_pos + 3);
@@ -160,11 +159,11 @@ void parse_pid_command(const char* cmd) {
     
     if (updated) {
         pid_K = new_P;
-        pid_Ti = (new_I != 0.0f) ? (1.0f / new_I) : 900000.0f;
+        pid_Ti = new_I;
         pid_Td = new_D;
         min_pwm_percent = new_min_pwm;
         ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f, MP=%.1f%%", 
-                 pid_K, new_I, pid_Td, min_pwm_percent);
+                 pid_K, pid_Ti, pid_Td, min_pwm_percent);
     }
 }
 
@@ -391,7 +390,7 @@ float PID(float y, float yzad)
 	const float Ti = pid_Ti;
 	const float Td = pid_Td;
 
-	static float u =  0.0f;
+	static float this_u =  0.0f;
 
 	//bledy:
 	static float e = 0.0f;
@@ -407,14 +406,14 @@ float PID(float y, float yzad)
 	e_1 = e;
 	e = yzad - y;
 
-	u = r2*e_2 + r1*e_1 + r0*e + u;
-	return u;
+	this_u = r2*e_2 + r1*e_1 + r0*e + this_u;
+	return this_u;
 }
 
-// Motor deadband compensation function - maps control signal to 22-100% PWM range
+
 float compensate_motor_deadband(float control_signal, float max_control) {
     float abs_control = fabs(control_signal);
-    float min_pwm = min_pwm_percent / 100.0f;  // Convert percentage to ratio
+    float min_pwm = min_pwm_percent / 100.0f;
     
     return min_pwm + (abs_control / max_control) * (1.0f - min_pwm);
 }
@@ -533,11 +532,10 @@ void regular_100Hz_task(void *arg)
         if (u > max_u) u = max_u;
         if (u < -max_u) u = -max_u;
         
-        // Use deadband compensation to get PWM ratio (min pwm percentage to 1.0)
+        // Mapping pwm ratio from 0-250 to min pwm percentage to 1.0
         pwm_ratio = compensate_motor_deadband(u, max_u);
 
         if (consecutive_failures < max_consecutive_failures / 2) {
-            // Check if PWM signal is below 25%, then stop
             if (pwm_ratio < 0.25f) {
                 stop();
             } else if (u > 0) {

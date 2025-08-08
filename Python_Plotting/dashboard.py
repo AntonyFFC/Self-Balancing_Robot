@@ -59,7 +59,7 @@ setpitch_text = ax1.text(0.02, 0.85, 'Set Pitch: -- °', transform=ax1.transAxes
 
 # Control Signal plot
 line3, = ax2.plot([], [], 'g-', label='Control Signal (u)', linewidth=2)
-ax2.set_ylim(-250, 250)
+ax2.set_ylim(-150, 150)
 ax2.set_xlim(0, 500)
 ax2.set_ylabel("Control Signal")
 ax2.set_xlabel("Time")
@@ -203,7 +203,7 @@ def reset_error_display():
     except:
         pass
 
-pid_values = {'P': 0.0, 'I': 0.0, 'D': 0.0, 'MP': 0.0}
+pid_values = {'P': 0.0, 'I': 900000.0, 'D': 0.0, 'MP': 0.0}
 
 def send_pid_values():
     cmd = f"P={pid_values['P']},I={pid_values['I']},D={pid_values['D']},MP={pid_values['MP']}\n"
@@ -249,7 +249,7 @@ def on_p_entry_change(event):
 def on_i_entry_change(event):
     try:
         val = float(i_entry.get())
-        if 0.0 <= val <= 10.0:
+        if 0.0 <= val <= 900000.0:
             i_scale.set(val)
             pid_values['I'] = val
     except ValueError:
@@ -316,7 +316,7 @@ p_entry.pack(pady=5)
 i_frame = tk.Frame(pid_frame)
 i_frame.pack(side=tk.LEFT, padx=10)
 tk.Label(i_frame, text="I Gain").pack()
-i_scale = tk.Scale(i_frame, from_=10.0, to=0.0, resolution=0.1, orient=tk.VERTICAL, command=send_i_gain)
+i_scale = tk.Scale(i_frame, from_=900000.0, to=0.0, resolution=10.0, orient=tk.VERTICAL, command=send_i_gain)
 i_scale.pack()
 i_entry = tk.Entry(i_frame, width=8)
 i_entry.pack(pady=5)
@@ -395,8 +395,8 @@ d_entry.bind('<FocusOut>', on_d_entry_change)
 mp_entry.bind('<Return>', on_mp_entry_change)
 mp_entry.bind('<FocusOut>', on_mp_entry_change)
 
-p_entry.insert(0, "0.0")
-i_entry.insert(0, "0.0")
+p_entry.insert(0, "2.5")
+i_entry.insert(0, "900000.0")
 d_entry.insert(0, "0.0")
 mp_entry.insert(0, "0.0")
 
