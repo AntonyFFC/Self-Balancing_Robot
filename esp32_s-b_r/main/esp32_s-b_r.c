@@ -36,7 +36,7 @@ static float min_pwm_percent = 22.0f;  // Minimum PWM percentage for motor movem
 // ============================================================================
 #if PYTHON_PLOTTER_DEBUG
 
-#define DESTINATION_IP "192.168.1.23"
+#define DESTINATION_IP "192.168.1.13"
 #define DESTINATION_PORT 7777
 #define LISTEN_PORT 7778
 #define UDP_MSG_MAX_LEN 128
@@ -266,7 +266,7 @@ static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t l
     esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, ACC_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     
     if (ret == ESP_ERR_TIMEOUT) {
-        ESP_LOGI(TAG, "I2C read timeout, attempting bus recovery");
+        // ESP_LOGI(TAG, "I2C read timeout, attempting bus recovery");
         #if PYTHON_PLOTTER_DEBUG
         send_i2c_error("READ_TIMEOUT", ret);
         #endif
@@ -286,7 +286,7 @@ static esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t data)
     esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, ACC_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     
     if (ret == ESP_ERR_TIMEOUT) {
-        ESP_LOGI(TAG, "I2C write timeout");
+        // ESP_LOGI(TAG, "I2C write timeout");
         #if PYTHON_PLOTTER_DEBUG
         send_i2c_error("WRITE_TIMEOUT", ret);
         #endif
@@ -344,7 +344,7 @@ void read3dData(float* x, float* y, float* z, float rangeFactor, uint8_t startRe
     } while (retry_count < max_retries);
 
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read sensor data after %d retries, using zeros", max_retries);
+        // ESP_LOGE(TAG, "Failed to read sensor data after %d retries, using zeros", max_retries);
         #if PYTHON_PLOTTER_DEBUG
         send_i2c_error("SENSOR_READ_FAILED", ret);
         #endif
@@ -377,7 +377,7 @@ void readGyroscope(float* x, float* y, float* z)
 
 void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float dt)
 {
-	const float alpha = 0.90;
+	const float alpha = 0.85;
 	float acc_pitch = atan2(ax, sqrt(ay*ay+az*az)) * 180.0 / M_PI;
     // float acc_pitch = atan2(az, sqrt(ax*ax + ay*ay)) * (180.0 / M_PI); // Alternative vertical formula
 	*pitch = alpha * (*pitch + gx * dt) + (1.0f-alpha) * acc_pitch;
@@ -529,7 +529,7 @@ void regular_100Hz_task(void *arg)
 
         if (!sensor_read_success) {
             consecutive_failures++;
-            ESP_LOGI(TAG, "Sensor read failed, using previous values (%lu consecutive failures)", consecutive_failures);
+            // ESP_LOGI(TAG, "Sensor read failed, using previous values (%lu consecutive failures)", consecutive_failures);
             
             if (consecutive_failures > max_consecutive_failures) {
                 ESP_LOGE(TAG, "Too many sensor failures, stopping robot for safety");
@@ -551,7 +551,7 @@ void regular_100Hz_task(void *arg)
         pwm_ratio = compensate_motor_deadband(u, max_u);
 
         if (consecutive_failures < max_consecutive_failures / 2) {
-            if (pwm_ratio < 0.25f) {
+            if (pwm_ratio < 0.20f) {
                 stop();
             } else if (u > 0) {
                 backward(pwm_ratio);

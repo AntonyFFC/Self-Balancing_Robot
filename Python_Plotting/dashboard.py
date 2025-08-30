@@ -14,7 +14,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
 sock.settimeout(0.01)
 
-ESP_IP = "192.168.1.10"
+ESP_IP = "192.168.1.14"
 ESP_PORT = 7778
 send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
