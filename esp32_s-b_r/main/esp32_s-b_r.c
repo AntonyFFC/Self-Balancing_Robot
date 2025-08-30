@@ -127,10 +127,23 @@ static void udp_send_data(const char *data) {
     // }
 }
 
+void send_initial_pid_values(void) {
+    char init_msg[UDP_MSG_MAX_LEN];
+    snprintf(init_msg, sizeof(init_msg), "INIT:P=%.3f,I=%.6f,D=%.3f,MP=%.1f\n", 
+             pid_K, pid_Ti, pid_Td, min_pwm_percent);
+    udp_send_data(init_msg);
+    ESP_LOGI(TAG, "Sent initial PID values: %s", init_msg);
+}
+
 void parse_pid_command(const char* cmd) {
     float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
     float new_min_pwm = min_pwm_percent;
     bool updated = false;
+
+    if (strstr(cmd, "GET") != NULL) {
+        send_initial_pid_values();
+        return;
+    }
     
     char* p_pos = strstr(cmd, "P=");
     if (p_pos != NULL) {
@@ -680,6 +693,8 @@ void app_main(void)
     
 #if PYTHON_PLOTTER_DEBUG
     init_debug_features();
+    vTaskDelay(pdMS_TO_TICKS(1000)); // Small delay to ensure UDP is ready
+    send_initial_pid_values();
 #else
     ESP_LOGI(TAG, "UDP debug disabled");
 #endif

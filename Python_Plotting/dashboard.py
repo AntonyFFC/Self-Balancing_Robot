@@ -82,6 +82,10 @@ def update(frame):
             parse_error_message(message)
             return line1, line2, line3, pitch_text, setpitch_text, control_text
         
+        if message.startswith("INIT:"):
+            parse_init_message(message)
+            return line1, line2, line3, pitch_text, setpitch_text, control_text
+        
         values = message.split(",")
         
         if len(values) >= 3:
@@ -158,6 +162,63 @@ def parse_error_message(message):
                 
     except Exception as e:
         print(f"Error parsing error message: {e}")
+
+def parse_init_message(message):
+    """Parse initial PID values from ESP32"""
+    try:
+        # np Parse: "INIT:P=2.500,I=0.000001,D=0.000,MP=0.0"
+        parts = message.split(":")
+        if len(parts) >= 2:
+            pid_info = parts[1]
+            
+            p_pos = pid_info.find("P=")
+            if p_pos != -1:
+                p_end = pid_info.find(",", p_pos)
+                if p_end == -1:
+                    p_end = len(pid_info)
+                p_val = float(pid_info[p_pos+2:p_end])
+                pid_values['P'] = p_val
+                p_scale.set(p_val)
+                p_entry.delete(0, tk.END)
+                p_entry.insert(0, f"{p_val:.1f}")
+            
+            i_pos = pid_info.find("I=")
+            if i_pos != -1:
+                i_end = pid_info.find(",", i_pos)
+                if i_end == -1:
+                    i_end = len(pid_info)
+                i_val = float(pid_info[i_pos+2:i_end])
+                pid_values['I'] = i_val
+                i_scale.set(i_val)
+                i_entry.delete(0, tk.END)
+                i_entry.insert(0, f"{i_val:.6f}")
+            
+            d_pos = pid_info.find("D=")
+            if d_pos != -1:
+                d_end = pid_info.find(",", d_pos)
+                if d_end == -1:
+                    d_end = len(pid_info)
+                d_val = float(pid_info[d_pos+2:d_end])
+                pid_values['D'] = d_val
+                d_scale.set(d_val)
+                d_entry.delete(0, tk.END)
+                d_entry.insert(0, f"{d_val:.1f}")
+            
+            mp_pos = pid_info.find("MP=")
+            if mp_pos != -1:
+                mp_end = pid_info.find(",", mp_pos)
+                if mp_end == -1:
+                    mp_end = len(pid_info)
+                mp_val = float(pid_info[mp_pos+3:mp_end])
+                pid_values['MP'] = mp_val
+                mp_scale.set(mp_val)
+                mp_entry.delete(0, tk.END)
+                mp_entry.insert(0, f"{mp_val:.1f}")
+            
+            print(f"Received PID values - P:{pid_values['P']}, I:{pid_values['I']}, D:{pid_values['D']}, MP:{pid_values['MP']}")
+                
+    except Exception as e:
+        print(f"Error parsing init message: {e}")
 
 def update_error_display():
     try:
@@ -236,6 +297,15 @@ def send_min_pwm(val):
 
 def send_pid_button_click():
     send_pid_values()
+
+def get_pid_values():
+    cmd = "GET\n"
+    print(f"Requesting PID values from {ESP_IP}:{ESP_PORT}")
+    try:
+        send_sock.sendto(cmd.encode(), (ESP_IP, ESP_PORT))
+        print("GET command sent successfully")
+    except Exception as e:
+        print(f"Error sending GET command: {e}")
 
 def on_p_entry_change(event):
     try:
@@ -345,7 +415,11 @@ send_button_frame.pack(pady=10)
 
 send_button = tk.Button(send_button_frame, text="Send PID Parameters", command=send_pid_button_click, 
                        bg="lightgreen", font=("Arial", 12, "bold"), padx=20, pady=5)
-send_button.pack()
+send_button.pack(side=tk.LEFT, padx=5)
+
+get_button = tk.Button(send_button_frame, text="Get PID Values", command=get_pid_values, 
+                      bg="lightblue", font=("Arial", 12, "bold"), padx=20, pady=5)
+get_button.pack(side=tk.LEFT, padx=5)
 
 # CSV saving checkbox
 csv_frame = tk.Frame(root)
