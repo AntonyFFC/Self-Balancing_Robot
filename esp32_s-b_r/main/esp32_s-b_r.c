@@ -36,7 +36,7 @@ static float min_pwm_percent = 22.0f;  // Minimum PWM percentage for motor movem
 // ============================================================================
 #if PYTHON_PLOTTER_DEBUG
 
-#define DESTINATION_IP "192.168.1.13"
+#define DESTINATION_IP "192.168.1.14"
 #define DESTINATION_PORT 7777
 #define LISTEN_PORT 7778
 #define UDP_MSG_MAX_LEN 128

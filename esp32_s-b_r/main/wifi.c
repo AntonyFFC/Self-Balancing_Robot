@@ -7,8 +7,8 @@
 #include "esp_netif.h"
 
 static const char *TAG = "wifi";
-#define WIFI_SSID "FunBox-22B9"
-#define WIFI_PASS "F3A3235C2D9632643E1E27CC73"
+#define WIFI_SSID "TCL-2TXF"
+#define WIFI_PASS "wy3rJ476Y9mv"
 #define MAX_RETRIES 10
 
 bool wifi_connected = false;
