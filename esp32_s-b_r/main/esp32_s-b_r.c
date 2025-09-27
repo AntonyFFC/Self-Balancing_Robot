@@ -30,6 +30,7 @@ static float pitch = 0.0f, setPitch = 0.0f, u = 0.0f;
 
 // Motor deadband compensation parameters
 static float min_pwm_percent = 22.0f;  // Minimum PWM percentage for motor movement
+static float motor_threshold_percent = 20.0f;  // Minimum PWM threshold to activate motors (stop below this)
 
 // ============================================================================
 // UDP DEBUG SECTION - UDP/Python plotter debug functionality
@@ -129,8 +130,8 @@ static void udp_send_data(const char *data) {
 
 void send_initial_pid_values(void) {
     char init_msg[UDP_MSG_MAX_LEN];
-    snprintf(init_msg, sizeof(init_msg), "INIT:P=%.3f,I=%.6f,D=%.3f,MP=%.1f\n", 
-             pid_K, pid_Ti, pid_Td, min_pwm_percent);
+    snprintf(init_msg, sizeof(init_msg), "INIT:P=%.3f,I=%.6f,D=%.3f,MP=%.1f,MT=%.1f\n", 
+             pid_K, pid_Ti, pid_Td, min_pwm_percent, motor_threshold_percent);
     udp_send_data(init_msg);
     ESP_LOGI(TAG, "Sent initial PID values: %s", init_msg);
 }
@@ -138,6 +139,7 @@ void send_initial_pid_values(void) {
 void parse_pid_command(const char* cmd) {
     float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
     float new_min_pwm = min_pwm_percent;
+    float new_motor_threshold = motor_threshold_percent;
     bool updated = false;
 
     if (strstr(cmd, "GET") != NULL) {
@@ -170,13 +172,20 @@ void parse_pid_command(const char* cmd) {
         updated = true;
     }
     
+    char* mt_pos = strstr(cmd, "MT=");
+    if (mt_pos != NULL) {
+        new_motor_threshold = atof(mt_pos + 3);
+        updated = true;
+    }
+    
     if (updated) {
         pid_K = new_P;
         pid_Ti = new_I;
         pid_Td = new_D;
         min_pwm_percent = new_min_pwm;
-        ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f, MP=%.1f%%", 
-                 pid_K, pid_Ti, pid_Td, min_pwm_percent);
+        motor_threshold_percent = new_motor_threshold;
+        ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f, MP=%.1f%%, MT=%.1f%%", 
+                 pid_K, pid_Ti, pid_Td, min_pwm_percent, motor_threshold_percent);
     }
 }
 
@@ -564,7 +573,7 @@ void regular_100Hz_task(void *arg)
         pwm_ratio = compensate_motor_deadband(u, max_u);
 
         if (consecutive_failures < max_consecutive_failures / 2) {
-            if (pwm_ratio < 0.20f) {
+            if (pwm_ratio < (motor_threshold_percent / 100.0f)) {
                 stop();
             } else if (u > 0) {
                 backward(pwm_ratio);
