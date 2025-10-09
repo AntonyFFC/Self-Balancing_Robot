@@ -1,0 +1,27 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"terminal.integrated.defaultProfile.linux": "bash",
+		"terminal.integrated.profiles.linux": {
+			"bash": {
+				"path": "bash",
+				"args": [
+					"-c",
+					". $HOME/esp/esp-idf/export.sh; exec bash"
+				]
+			}
+		},
+		"files.associations": {
+			"sdkconfig.h": "c",
+			"freertos.h": "c",
+			"task.h": "c",
+			"pulse_cnt.h": "c",
+			"sockets.h": "c",
+			"regex": "c"
+		}
+	}
+}

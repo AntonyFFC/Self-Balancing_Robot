@@ -1,0 +1,10 @@
+menu "Example Configuration"
+
+    config PYTHON_PLOTTER_DEBUG
+        bool "Enable sending data via UDP to PC for analizing"
+        default "n"
+        help
+            Enable this option, the program will send data through WI-FI using UDP to the PC, 
+            which can be read by a socket analyser.
+
+endmenu
