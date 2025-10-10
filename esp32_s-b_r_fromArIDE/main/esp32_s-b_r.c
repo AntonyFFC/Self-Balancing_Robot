@@ -14,6 +14,7 @@
 #include "lwip/netdb.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
+#include "mpu6050_dmp.h"
 
 #define PYTHON_PLOTTER_DEBUG           CONFIG_PYTHON_PLOTTER_DEBUG
 
@@ -588,48 +589,45 @@ void regular_100Hz_task(void *arg)
 
             uint8_t mpuIntStatus;
             mpu6050_register_read(MPU6050_INT_STATUS_REG, &mpuIntStatus, 1);
-            if (mpuIntStatus == ESP_OK) {
-                if (mpuIntStatus & 0x10) {
-                // TODO: handle FIFO overflow, e.g. reset FIFO
-                    ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
-                // mpu_resetFIFO();
-                }
-                if (mpuIntStatus & 0x01) {
-                    // Data ready: read fifo and process data
-                    // TODO: read FIFO data and process DMP packet
-                    bool sensor_read_success = true;
-        
-                    static float prev_accxf = 0.0f, prev_accyf = 0.0f, prev_acczf = 0.0f;
-                    static float prev_gyroxf = 0.0f, prev_gyroyf = 0.0f, prev_gyrozf = 0.0f;
+            // TODO: check for FIFO overflow (get fifo count)
+            if (mpuIntStatus & 0x10) {
+            // TODO: handle FIFO overflow, e.g. reset FIFO
+                ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
+            // mpu_resetFIFO();
+            }
+            if (mpuIntStatus & 0x01) {
+                // Data ready: read fifo and process data
+                // TODO: read FIFO data and process DMP packet
+                bool sensor_read_success = true;
+    
+                static float prev_accxf = 0.0f, prev_accyf = 0.0f, prev_acczf = 0.0f;
+                static float prev_gyroxf = 0.0f, prev_gyroyf = 0.0f, prev_gyrozf = 0.0f;
 
-                    readAccelerometer(&accxf, &accyf, &acczf);
-                    if (accxf == 0.0f && accyf == 0.0f && acczf == 0.0f) {
-                        sensor_read_success = false;
-                        accxf = prev_accxf;
-                        accyf = prev_accyf;
-                        acczf = prev_acczf;
-                    } else {
-                        prev_accxf = accxf;
-                        prev_accyf = accyf;
-                        prev_acczf = acczf;
-                    }
-                    
-                    readGyroscope(&gyroxf, &gyroyf, &gyrozf);
-                    if (gyroxf == 0.0f && gyroyf == 0.0f && gyrozf == 0.0f) {
-                        sensor_read_success = false;
-                        gyroxf = prev_gyroxf;
-                        gyroyf = prev_gyroyf;
-                        gyrozf = prev_gyrozf;
-                    } else {
-                        prev_gyroxf = gyroxf;
-                        prev_gyroyf = gyroyf;
-                        prev_gyrozf = gyrozf;
-                    }
-
-                    calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
+                readAccelerometer(&accxf, &accyf, &acczf);
+                if (accxf == 0.0f && accyf == 0.0f && acczf == 0.0f) {
+                    sensor_read_success = false;
+                    accxf = prev_accxf;
+                    accyf = prev_accyf;
+                    acczf = prev_acczf;
+                } else {
+                    prev_accxf = accxf;
+                    prev_accyf = accyf;
+                    prev_acczf = acczf;
                 }
-            }else {
-                ESP_LOGE(TAG, "Failed to read MPU6050 interrupt status");
+                
+                readGyroscope(&gyroxf, &gyroyf, &gyrozf);
+                if (gyroxf == 0.0f && gyroyf == 0.0f && gyrozf == 0.0f) {
+                    sensor_read_success = false;
+                    gyroxf = prev_gyroxf;
+                    gyroyf = prev_gyroyf;
+                    gyrozf = prev_gyrozf;
+                } else {
+                    prev_gyroxf = gyroxf;
+                    prev_gyroyf = gyroyf;
+                    prev_gyrozf = gyrozf;
+                }
+
+                calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
             }
         }
 
