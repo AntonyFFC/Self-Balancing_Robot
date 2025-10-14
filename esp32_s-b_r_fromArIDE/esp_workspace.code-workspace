@@ -21,7 +21,8 @@
 			"task.h": "c",
 			"pulse_cnt.h": "c",
 			"sockets.h": "c",
-			"regex": "c"
+			"regex": "c",
+			"cstddef": "c"
 		}
 	}
 }

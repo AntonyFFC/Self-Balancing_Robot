@@ -1,6 +1,8 @@
 #include "mpu6050_dmp.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "driver/i2c.h"
+#include "driver/gpio.h"
 // Include your I2C low-level headers here
 
 #define TAG "MPU_DMP"
@@ -91,7 +93,7 @@ static esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t data)
 }
 
 // DMP firmware binary - paste or include your dmpMemory array here or from file
-static const unsigned char dmpMemory[MPU6050_DMP_CODE_SIZE] PROGMEM = {
+static const uint8_t dmpMemory[MPU6050_DMP_CODE_SIZE] = {
 	/* bank # 0 */
 	0xFB, 0x00, 0x00, 0x3E, 0x00, 0x0B, 0x00, 0x36, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00,
 	0x00, 0x65, 0x00, 0x54, 0xFF, 0xEF, 0x00, 0x00, 0xFA, 0x80, 0x00, 0x0B, 0x12, 0x82, 0x00, 0x01,
@@ -482,9 +484,9 @@ void MPU6050_Base::setZAccelOffset(int16_t offset) {
 	I2Cdev::writeWord(devAddr, SaveAddress, offset, wireObj);
 }
 
-void MPU6050_Base::getFIFOBytes(uint8_t *data, uint8_t length) {
+void getFIFOBytes(uint8_t *data, uint8_t length) {
     if(length > 0){
-        I2Cdev::readBytes(devAddr, MPU6050_RA_FIFO_R_W, length, data, I2Cdev::readTimeout, wireObj);
+        mpu6050_read_bytes(devAddr, MPU6050_RA_FIFO_R_W, length, data, I2Cdev::readTimeout);
     } else {
     	*data = 0;
     }
@@ -573,11 +575,12 @@ esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t* data)
 }
 
 // Read multiple bytes from a register
-esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t* buf, uint16_t len)
+esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *buffer, size_t len)
 {
-    return mpu6050_register_read(reg, buf, len);
+    return mpu6050_register_read(reg, buffer, len);
 }
 
+// whole this function instead of three getQuaternion, getGravity, getYawPitchRoll
 int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFloat *gravity, float ypr[3]) {
     if (!fifoBuffer || !q || !gravity || !ypr) return -1;
 
@@ -589,10 +592,10 @@ int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFl
     qI[3] = (int16_t)((fifoBuffer[12] << 8) | fifoBuffer[13]);
 
     // Convert to float quaternion values normalized by 16384.0f
-    q->w = (float)qI[0] / 16384.0f;
-    q->x = (float)qI[1] / 16384.0f;
-    q->y = (float)qI[2] / 16384.0f;
-    q->z = (float)qI[3] / 16384.0f;
+    q->w = (float)qI[0] / pow(2, 14);
+    q->x = (float)qI[1] / pow(2, 14);
+    q->y = (float)qI[2] / pow(2, 14);
+    q->z = (float)qI[3] / pow(2, 14);
 
     // Calculate gravity vector from quaternion
     gravity->x = 2.0f * (q->x * q->z - q->w * q->y);
