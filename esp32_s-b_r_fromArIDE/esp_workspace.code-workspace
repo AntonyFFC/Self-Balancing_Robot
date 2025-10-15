@@ -22,7 +22,17 @@
 			"pulse_cnt.h": "c",
 			"sockets.h": "c",
 			"regex": "c",
-			"cstddef": "c"
+			"cstddef": "c",
+			"mpu6050_dmp.h": "c",
+			"i2c.h": "c",
+			"array": "c",
+			"deque": "c",
+			"list": "c",
+			"string": "c",
+			"vector": "c",
+			"iterator": "c",
+			"string_view": "c",
+			"thread": "c"
 		}
 	}
 }

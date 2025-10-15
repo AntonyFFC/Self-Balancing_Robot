@@ -4,6 +4,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include "esp_log.h"
+#include "driver/i2c.h"
+#include <math.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "driver/gpio.h"
 
 #define MPU6050_ADDR             0x68
 #define MPU6050_INT_PIN          4
@@ -55,7 +65,14 @@ esp_err_t mpu6050_write_bits(uint8_t reg, uint8_t bit_start, uint8_t length, uin
 esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data);
 esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t *data);
 esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *buffer, size_t len);
-esp_err_t mpu6050_write_prog_memory_block(const uint8_t *prog, uint16_t size);
+esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address);
+
+// gyro offset setters
+esp_err_t mpu6050_set_x_gyro_offset(int16_t offset);
+esp_err_t mpu6050_set_y_gyro_offset(int16_t offset);
+esp_err_t mpu6050_set_z_gyro_offset(int16_t offset);
+esp_err_t mpu6050_set_z_accel_offset(int16_t offset);
+
 
 // Interrupt and FIFO handling
 // esp_err_t mpu6050_interrupt_init(void);
@@ -63,6 +80,7 @@ esp_err_t mpu6050_write_prog_memory_block(const uint8_t *prog, uint16_t size);
 esp_err_t mpu6050_get_fifo_count(uint16_t *count);
 esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len);
 uint16_t mpu6050_get_fifo_packet_size(void);
+esp_err_t getFIFOBytes(uint8_t *data, uint8_t length);
 
 // DMP data parsing
 int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFloat *gravity, float ypr[3]);

@@ -1,8 +1,5 @@
 #include "mpu6050_dmp.h"
-#include "driver/gpio.h"
-#include "esp_log.h"
-#include "driver/i2c.h"
-#include "driver/gpio.h"
+
 // Include your I2C low-level headers here
 
 #define TAG "MPU_DMP"
@@ -36,6 +33,9 @@ static uint16_t dmpPacketSize = 42;
 #define MPU6050_CLOCK_SEL_LENGTH 3
 #define MPU6050_WAKE_BIT        6
 #define MPU6050_SLEEP_BIT       6
+#define MPU6050_CLOCK_PLL_XGYRO         0x01
+#define MPU6050_GYRO_FS_250         0x00
+#define MPU6050_ACCEL_FS_2          0x00
 
 // DMP config registers
 #define MPU6050_RA_DMP_CFG_1  0x70
@@ -52,6 +52,20 @@ static uint16_t dmpPacketSize = 42;
 #define MPU6050_RA_INT_STATUS 0x3A
 #define MPU6050_RA_FIFO_COUNTH 0x72
 #define MPU6050_RA_FIFO_R_W   0x74
+
+#ifndef MPU6050_DMP_FIFO_RATE_DIVISOR 
+#define MPU6050_DMP_FIFO_RATE_DIVISOR 0x01 // The New instance of the Firmware has this as the default
+#endif
+
+#define MPU6050_DMP_MEMORY_CHUNK_SIZE 16   // same as in the Arduino library (16 bytes typical)
+#define MPU6050_RA_BANK_SEL         0x6D
+#define MPU6050_RA_MEM_START_ADDR   0x6E
+#define MPU6050_RA_MEM_R_W          0x6F
+
+#define MPU6050_RA_XG_OFFS_USRH   0x13
+#define MPU6050_RA_YG_OFFS_USRH   0x15
+#define MPU6050_RA_ZG_OFFS_USRH   0x17
+#define MPU6050_RA_ZA_OFFS_H      0x06
 
 static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
 {
@@ -268,8 +282,11 @@ esp_err_t mpu6050_dmp_initialize(void)
 
     // Load DMP firmware to MPU memory banks
     ESP_LOGI(TAG, "Loading DMP firmware...");
-    ret = mpu6050_write_prog_memory_block(dmpMemory, MPU6050_DMP_CODE_SIZE);
+    ret = mpu6050_write_prog_memory_block(dmpMemory, MPU6050_DMP_CODE_SIZE, 0, 0);
     if (ret != ESP_OK) return ret;
+
+    uint8_t dmp_update[] = {0x00, MPU6050_DMP_FIFO_RATE_DIVISOR};
+    mpu6050_write_prog_memory_block(dmp_update, 2, 0x02, 0x16);
 
     ret = mpu6050_set_dmp_config1(0x03);
     if (ret != ESP_OK) return ret;
@@ -312,10 +329,7 @@ esp_err_t mpu6050_dmp_initialize(void)
     ret = mpu6050_reset_fifo();
     if (ret != ESP_OK) return ret;
 
-    uint8_t int_status = 0;
-    mpu6050_get_int_status(&int_status);
-
-    dmpPacketSize = 42;
+    mpu6050_read_byte(MPU6050_INT_STATUS_REG, 0);
 
     return ESP_OK; // return 0 on success
 }
@@ -467,29 +481,39 @@ int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFl
     return 0;
 }
 
-void MPU6050_Base::setXGyroOffset(int16_t offset) {
-    I2Cdev::writeWord(devAddr, MPU6050_RA_XG_OFFS_USRH, offset, wireObj);
+esp_err_t mpu6050_set_x_gyro_offset(int16_t offset)
+{
+    return mpu6050_write_word(MPU6050_RA_XG_OFFS_USRH, offset);
 }
 
-void MPU6050_Base::setYGyroOffset(int16_t offset) {
-    I2Cdev::writeWord(devAddr, MPU6050_RA_YG_OFFS_USRH, offset, wireObj);
+esp_err_t mpu6050_set_y_gyro_offset(int16_t offset)
+{
+    return mpu6050_write_word(MPU6050_RA_YG_OFFS_USRH, offset);
 }
 
-void MPU6050_Base::setZGyroOffset(int16_t offset) {
-    I2Cdev::writeWord(devAddr, MPU6050_RA_ZG_OFFS_USRH, offset, wireObj);
+esp_err_t mpu6050_set_z_gyro_offset(int16_t offset)
+{
+    return mpu6050_write_word(MPU6050_RA_ZG_OFFS_USRH, offset);
 }
 
-void MPU6050_Base::setZAccelOffset(int16_t offset) {
-	uint8_t SaveAddress = ((getDeviceID() < 0x38 )? MPU6050_RA_ZA_OFFS_H:0x7D); // MPU6050,MPU9150 Vs MPU6500,MPU9250
-	I2Cdev::writeWord(devAddr, SaveAddress, offset, wireObj);
+
+esp_err_t mpu6050_set_z_accel_offset(int16_t offset)
+{
+    uint8_t dev_id;
+    esp_err_t ret = mpu6050_read_byte(0x75, &dev_id);
+    if (ret != ESP_OK) return ret;
+
+    // MPU6050/9150 use 0x06; MPU6500/9250 use 0x7D
+    uint8_t save_addr = (dev_id < 0x38) ? MPU6050_RA_ZA_OFFS_H : 0x7D;
+
+    return mpu6050_write_word(save_addr, offset);
 }
 
-void getFIFOBytes(uint8_t *data, uint8_t length) {
+esp_err_t getFIFOBytes(uint8_t *data, uint8_t length) {
     if(length > 0){
-        mpu6050_read_bytes(devAddr, MPU6050_RA_FIFO_R_W, length, data, I2Cdev::readTimeout);
-    } else {
-    	*data = 0;
+        return mpu6050_read_bytes(MPU6050_RA_FIFO_R_W, data, length);
     }
+    return ESP_ERR_INVALID_ARG;
 }
 
 static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
@@ -578,6 +602,98 @@ esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t* data)
 esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *buffer, size_t len)
 {
     return mpu6050_register_read(reg, buffer, len);
+}
+
+static esp_err_t mpu6050_write_word(uint8_t reg_high, int16_t value)
+{
+    esp_err_t ret;
+    uint8_t high = (uint8_t)((value >> 8) & 0xFF);
+    uint8_t low  = (uint8_t)(value & 0xFF);
+
+    ret = mpu6050_write_byte(reg_high, high);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write high byte at 0x%02X", reg_high);
+        return ret;
+    }
+
+    ret = mpu6050_write_byte(reg_high + 1, low);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write low byte at 0x%02X", reg_high + 1);
+        return ret;
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t mpu6050_set_memory_bank(uint8_t bank, bool prefetch_enabled, bool user_bank)
+{
+    bank &= 0x1F;
+    if (user_bank) bank |= 0x20;
+    if (prefetch_enabled) bank |= 0x40;
+    return mpu6050_write_byte(MPU6050_RA_BANK_SEL, bank);
+}
+
+static esp_err_t mpu6050_set_memory_start_address(uint8_t address)
+{
+    return mpu6050_write_byte(MPU6050_RA_MEM_START_ADDR, address);
+}
+
+/**
+ * @brief Write a large block of data to MPU memory banks
+ *
+ * @param data pointer to data to write
+ * @param data_size total number of bytes to write
+ * @param bank starting memory bank (usually 0)
+ * @param address starting address within bank (usually 0)
+ * @return esp_err_t ESP_OK on success, or I2C error
+ */
+esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address)
+{
+    esp_err_t ret;
+    uint8_t chunk_size;
+    uint16_t i = 0;
+
+    // set initial bank and address
+    ret = mpu6050_set_memory_bank(bank, false, false);
+    if (ret != ESP_OK) return ret;
+    ret = mpu6050_set_memory_start_address(address);
+    if (ret != ESP_OK) return ret;
+
+    while (i < data_size)
+    {
+        // default chunk size
+        chunk_size = MPU6050_DMP_MEMORY_CHUNK_SIZE;
+
+        // adjust chunk if near data end
+        if (i + chunk_size > data_size)
+            chunk_size = data_size - i;
+
+        // ensure we don't cross bank boundary (each bank is 256 bytes)
+        if (chunk_size > (256 - address))
+            chunk_size = 256 - address;
+
+        // write this chunk
+        ret = mpu6050_write_bytes(MPU6050_RA_MEM_R_W, &data[i], chunk_size);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed writing memory chunk (bank %u, address %u, size %u)", bank, address, chunk_size);
+            return ret;
+        }
+
+        // advance pointers
+        i += chunk_size;
+        address += chunk_size;
+
+        // automatically wrap and move to next bank
+        if (i < data_size) {
+            if (address == 0) bank++;
+            ret = mpu6050_set_memory_bank(bank, false, false);
+            if (ret != ESP_OK) return ret;
+            ret = mpu6050_set_memory_start_address(address);
+            if (ret != ESP_OK) return ret;
+        }
+    }
+
+    return ESP_OK;
 }
 
 // whole this function instead of three getQuaternion, getGravity, getYawPitchRoll

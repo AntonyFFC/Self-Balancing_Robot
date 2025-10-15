@@ -30,6 +30,7 @@ static float pid_Td = 0.0f;
 static float pitch = 0.0f, setPitch = 0.0f, u = 0.0f;
 
 static volatile bool mpuInterrupt = false;
+uint16_t packetSize;
 
 // Motor deadband compensation parameters
 static float min_pwm_percent = 0.0f;  // Minimum PWM percentage for motor movement
@@ -570,6 +571,11 @@ void regular_100Hz_task(void *arg)
     float gx_offset, gy_offset, gz_offset;
     const float max_u = 250.0f;
     static float pwm_ratio;
+    uint16_t fifoCount;
+    uint8_t fifoBuffer[64];
+    Quaternion q;
+    VectorFloat gravity;
+    float ypr[3];
     
     static uint32_t consecutive_failures = 0;
     const uint32_t max_consecutive_failures = 10;
@@ -581,53 +587,63 @@ void regular_100Hz_task(void *arg)
 
     while (true) {
         if (!dmpReady) {
-        // TODO: wait for DMP ready flag
             return;
         }
+
         if (mpuInterrupt) {
             mpuInterrupt = false;
 
             uint8_t mpuIntStatus;
             mpu6050_register_read(MPU6050_INT_STATUS_REG, &mpuIntStatus, 1);
-            // TODO: check for FIFO overflow (get fifo count)
-            if (mpuIntStatus & 0x10) {
-            // TODO: handle FIFO overflow, e.g. reset FIFO
+            fifoCount = mpu6050_get_fifo_count();
+            if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
                 ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
-            // mpu_resetFIFO();
+                mpu6050_reset_fifo();
             }
             if (mpuIntStatus & 0x01) {
-                // Data ready: read fifo and process data
-                // TODO: read FIFO data and process DMP packet
-                bool sensor_read_success = true;
+                while(fifoCount < packetSize) {
+                    fifoCount = mpu6050_get_fifo_count();
+                }
+
+                getFIFOBytes(fifoBuffer, packetSize);
+                fifoCount -= packetSize;
+
+                mpu6050_parse_fifo_packet(fifoBuffer, &q, &gravity, ypr);
+                double angle = ypr[1] * 180 / M_PI;
+                if(angle < 0) {
+                    angle += 360;
+                }
+
+                // bool sensor_read_success = true;
     
-                static float prev_accxf = 0.0f, prev_accyf = 0.0f, prev_acczf = 0.0f;
-                static float prev_gyroxf = 0.0f, prev_gyroyf = 0.0f, prev_gyrozf = 0.0f;
+                // static float prev_accxf = 0.0f, prev_accyf = 0.0f, prev_acczf = 0.0f;
+                // static float prev_gyroxf = 0.0f, prev_gyroyf = 0.0f, prev_gyrozf = 0.0f;
 
-                readAccelerometer(&accxf, &accyf, &acczf);
-                if (accxf == 0.0f && accyf == 0.0f && acczf == 0.0f) {
-                    sensor_read_success = false;
-                    accxf = prev_accxf;
-                    accyf = prev_accyf;
-                    acczf = prev_acczf;
-                } else {
-                    prev_accxf = accxf;
-                    prev_accyf = accyf;
-                    prev_acczf = acczf;
-                }
+                // readAccelerometer(&accxf, &accyf, &acczf);
+                // if (accxf == 0.0f && accyf == 0.0f && acczf == 0.0f) {
+                //     sensor_read_success = false;
+                //     accxf = prev_accxf;
+                //     accyf = prev_accyf;
+                //     acczf = prev_acczf;
+                // } else {
+                //     prev_accxf = accxf;
+                //     prev_accyf = accyf;
+                //     prev_acczf = acczf;
+                // }
                 
-                readGyroscope(&gyroxf, &gyroyf, &gyrozf);
-                if (gyroxf == 0.0f && gyroyf == 0.0f && gyrozf == 0.0f) {
-                    sensor_read_success = false;
-                    gyroxf = prev_gyroxf;
-                    gyroyf = prev_gyroyf;
-                    gyrozf = prev_gyrozf;
-                } else {
-                    prev_gyroxf = gyroxf;
-                    prev_gyroyf = gyroyf;
-                    prev_gyrozf = gyrozf;
-                }
+                // readGyroscope(&gyroxf, &gyroyf, &gyrozf);
+                // if (gyroxf == 0.0f && gyroyf == 0.0f && gyrozf == 0.0f) {
+                //     sensor_read_success = false;
+                //     gyroxf = prev_gyroxf;
+                //     gyroyf = prev_gyroyf;
+                //     gyrozf = prev_gyrozf;
+                // } else {
+                //     prev_gyroxf = gyroxf;
+                //     prev_gyroyf = gyroyf;
+                //     prev_gyrozf = gyrozf;
+                // }
 
-                calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
+                // calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
             }
         }
 
@@ -739,40 +755,57 @@ void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offse
 
 void app_main(void)
 {
-    uint8_t i2c_receive_buf[6];
-    uint8_t i2c_transmit_buf[6];
+    // uint8_t i2c_receive_buf[6];
+    // uint8_t i2c_transmit_buf[6];
 
-    ESP_ERROR_CHECK(i2c_master_init());
-    ESP_LOGI(TAG, "I2C initialized successfully");
+    // ESP_ERROR_CHECK(i2c_master_init());
+    // ESP_LOGI(TAG, "I2C initialized successfully");
 
-    ESP_ERROR_CHECK(mpu6050_register_read(WHO_AM_I_REG, i2c_receive_buf, 1));
-    ESP_LOGI(TAG, "WHO_AM_I = %X", i2c_receive_buf[0]);
+    // ESP_ERROR_CHECK(mpu6050_register_read(WHO_AM_I_REG, i2c_receive_buf, 1));
+    // ESP_LOGI(TAG, "WHO_AM_I = %X", i2c_receive_buf[0]);
 
-    uint8_t PWR_MGMT_1_reg = 0x6B;
-    i2c_transmit_buf[0] = 0b00000000;
-    ESP_ERROR_CHECK(mpu6050_register_write_byte(PWR_MGMT_1_reg, i2c_transmit_buf[0]));
-    ESP_LOGI(TAG, "PWR_MGMT_1 set to 0x%02X", i2c_transmit_buf[0]);
+    // uint8_t PWR_MGMT_1_reg = 0x6B;
+    // i2c_transmit_buf[0] = 0b00000000;
+    // ESP_ERROR_CHECK(mpu6050_register_write_byte(PWR_MGMT_1_reg, i2c_transmit_buf[0]));
+    // ESP_LOGI(TAG, "PWR_MGMT_1 set to 0x%02X", i2c_transmit_buf[0]);
 
-    uint8_t SMPRT_DIV_reg = 0x19;
-    i2c_transmit_buf[0] = 0x07;
-    ESP_ERROR_CHECK(mpu6050_register_write_byte(SMPRT_DIV_reg, i2c_transmit_buf[0]));
-    ESP_LOGI(TAG, "SMPRT_DIV set to 0x%02X", i2c_transmit_buf[0]);
+    // uint8_t SMPRT_DIV_reg = 0x19;
+    // i2c_transmit_buf[0] = 0x07;
+    // ESP_ERROR_CHECK(mpu6050_register_write_byte(SMPRT_DIV_reg, i2c_transmit_buf[0]));
+    // ESP_LOGI(TAG, "SMPRT_DIV set to 0x%02X", i2c_transmit_buf[0]);
 
-    uint8_t GYRO_CONFIG_reg = 0x1B;
-    i2c_transmit_buf[0] = 0x00;
-    ESP_ERROR_CHECK(mpu6050_register_write_byte(GYRO_CONFIG_reg, i2c_transmit_buf[0]));
-    ESP_LOGI(TAG, "GYRO_CONFIG set to 0x%02X", i2c_transmit_buf[0]);
+    // uint8_t GYRO_CONFIG_reg = 0x1B;
+    // i2c_transmit_buf[0] = 0x00;
+    // ESP_ERROR_CHECK(mpu6050_register_write_byte(GYRO_CONFIG_reg, i2c_transmit_buf[0]));
+    // ESP_LOGI(TAG, "GYRO_CONFIG set to 0x%02X", i2c_transmit_buf[0]);
 
-    uint8_t ACCEL_CONFIG_reg = 0x1C;
-    i2c_transmit_buf[0] = 0x00;
-    ESP_ERROR_CHECK(mpu6050_register_write_byte(ACCEL_CONFIG_reg, i2c_transmit_buf[0]));
-    ESP_LOGI(TAG, "ACCEL_CONFIG set to 0x%02X", i2c_transmit_buf[0]);
+    // uint8_t ACCEL_CONFIG_reg = 0x1C;
+    // i2c_transmit_buf[0] = 0x00;
+    // ESP_ERROR_CHECK(mpu6050_register_write_byte(ACCEL_CONFIG_reg, i2c_transmit_buf[0]));
+    // ESP_LOGI(TAG, "ACCEL_CONFIG set to 0x%02X", i2c_transmit_buf[0]);
+    mpu6050_init();
 
-    esp_err_t ret = mpu6050_interrupt_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize MPU6050 interrupt GPIO");
+    uint8_t devStatus;
+    devStatus = dmpInitialize();
+    mpu_6050_setXGyroOffset(220);
+    mpu_6050_setYGyroOffset(76);
+    mpu_6050_setZGyroOffset(-85);
+    mpu_6050_setZAccelOffset(1688);
+    if (devStatus == 0) {
+        mpu6050_set_dmp_enabled(true);
+        esp_err_t ret = mpu6050_interrupt_init();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to initialize MPU6050 interrupt GPIO");
+        }
+        mpuInterrupt = false;
+
+        dmpReady = true;
+        packetSize = mpu6050_get_fifo_packet_size();
+        ESP_LOGI(TAG, "DMP ready! Waiting for first interrupt...");
+    } else {
+        ESP_LOGE(TAG, "DMP Initialization failed (code %d)", devStatus);
     }
-    mpuInterrupt = false;
+
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
