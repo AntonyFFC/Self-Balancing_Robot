@@ -1,4 +1,13 @@
 #include "mpu6050_dmp.h"
+#include <string.h>
+#include <stdlib.h>
+#include "esp_log.h"
+#include "driver/i2c.h"
+#include <math.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "driver/gpio.h"
 
 // Include your I2C low-level headers here
 
@@ -11,7 +20,6 @@
 #define MPU6050_FIFO_COUNT_REG 0x72
 #define MPU6050_FIFO_R_W_REG 0x74
 #define MPU6050_DMP_CODE_SIZE 1929
-static uint16_t dmpPacketSize = 42;
 
 #define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
 #define I2C_MASTER_SDA_IO           21      /*!< GPIO number used for I2C master data  */
@@ -26,7 +34,6 @@ static uint16_t dmpPacketSize = 42;
 #define ACCEL_START_REG 0x3B
 #define GYRO_START_REG 0x43
 #define WHO_AM_I_REG 0x75
-#define INT_STATUS_REG 0x3A
 
 #define MPU6050_PWR_MGMT_1      0x6B
 #define MPU6050_CLOCK_SEL_BIT   2
@@ -67,44 +74,11 @@ static uint16_t dmpPacketSize = 42;
 #define MPU6050_RA_ZG_OFFS_USRH   0x17
 #define MPU6050_RA_ZA_OFFS_H      0x06
 
-static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
-{
-    esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, ACC_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
-    
-    if (ret == ESP_ERR_TIMEOUT) {
-        // ESP_LOGI(TAG, "I2C read timeout, attempting bus recovery");
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("READ_TIMEOUT", ret);
-        #endif
-        vTaskDelay(pdMS_TO_TICKS(2));
-    } else if (ret != ESP_OK) {
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("READ_ERROR", ret);
-        #endif
-    }
-    
-    return ret;
-}
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
-static esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t data)
-{
-    uint8_t write_buf[2] = {reg_addr, data};
-    esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, ACC_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
-    
-    if (ret == ESP_ERR_TIMEOUT) {
-        // ESP_LOGI(TAG, "I2C write timeout");
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("WRITE_TIMEOUT", ret);
-        #endif
-        vTaskDelay(pdMS_TO_TICKS(2));
-    } else if (ret != ESP_OK) {
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("WRITE_ERROR", ret);
-        #endif
-    }
-    
-    return ret;
-}
+#define MPU6050_DMP_PACKET_SIZE  42
 
 // DMP firmware binary - paste or include your dmpMemory array here or from file
 static const uint8_t dmpMemory[MPU6050_DMP_CODE_SIZE] = {
@@ -242,10 +216,11 @@ static const uint8_t dmpMemory[MPU6050_DMP_CODE_SIZE] = {
 
 esp_err_t mpu6050_init(void)
 {
-    mpu6050_set_clock_source(MPU6050_CLOCK_PLL_XGYRO);
-    mpu6050_set_gyro_range(MPU6050_GYRO_FS_250);
-    mpu6050_set_accel_range(MPU6050_ACCEL_FS_2);
-    mpu6050_set_sleep_enabled(false);
+    if (mpu6050_set_clock_source(MPU6050_CLOCK_PLL_XGYRO) != ESP_OK) return ESP_FAIL;
+    if (mpu6050_set_gyro_range(MPU6050_GYRO_FS_250) != ESP_OK) return ESP_FAIL;
+    if (mpu6050_set_accel_range(MPU6050_ACCEL_FS_2) != ESP_OK) return ESP_FAIL;
+    if (mpu6050_set_sleep_enabled(false) != ESP_OK) return ESP_FAIL;
+    return ESP_OK;
 }
 
 esp_err_t mpu6050_dmp_initialize(void)
@@ -474,13 +449,6 @@ esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len)
     return mpu6050_read_bytes(MPU6050_FIFO_R_W_REG, buf, len);
 }
 
-// Parse FIFO buffer data based on Arduino library methods (convert to quaternions etc.)
-int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFloat *gravity, float ypr[3])
-{
-    // TODO: Port Arduino dmpGetQuaternion, dmpGetGravity, dmpGetYawPitchRoll functions here
-    return 0;
-}
-
 esp_err_t mpu6050_set_x_gyro_offset(int16_t offset)
 {
     return mpu6050_write_word(MPU6050_RA_XG_OFFS_USRH, offset);
@@ -516,7 +484,7 @@ esp_err_t getFIFOBytes(uint8_t *data, uint8_t length) {
     return ESP_ERR_INVALID_ARG;
 }
 
-static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
+esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
 {
     esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, ACC_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     
@@ -535,9 +503,11 @@ static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t l
     return ret;
 }
 
-static esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t data)
+esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t *data, size_t len)
 {
-    uint8_t write_buf[2] = {reg_addr, data};
+    uint8_t write_buf[len + 1];
+    write_buf[0] = reg_addr;
+    memcpy(&write_buf[1], data, len);
     esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, ACC_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     
     if (ret == ESP_ERR_TIMEOUT) {
@@ -567,7 +537,7 @@ esp_err_t mpu6050_write_bit(uint8_t reg, uint8_t bit_num, bool value)
     else
         byte &= ~(1 << bit_num);
 
-    return mpu6050_register_write_byte(reg, byte);
+    return mpu6050_register_write_byte(reg, &byte, 1);
 }
 
 // Write multiple bits (bit_start is highest bit, length is count)
@@ -583,13 +553,19 @@ esp_err_t mpu6050_write_bits(uint8_t reg, uint8_t bit_start, uint8_t length, uin
     byte &= ~mask;                      // zero all bits to be replaced in existing byte
     byte |= data;                       // combine
 
-    return mpu6050_register_write_byte(reg, byte);
+    return mpu6050_register_write_byte(reg, &byte, 1);
 }
 
 // Write a full byte to a register
 esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data)
 {
-    return mpu6050_register_write_byte(reg, data);
+    return mpu6050_register_write_byte(reg, &data, 1);
+}
+
+// Write multiple bytes to a register
+esp_err_t mpu6050_write_bytes(uint8_t reg, const uint8_t *data, size_t len)
+{
+    return mpu6050_register_write_byte(reg, data, len);
 }
 
 // Read a single byte from a register
@@ -729,9 +705,9 @@ int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFl
     // Adjust pitch according to gravity z component sign
     if (gravity->z < 0) {
         if (ypr[1] > 0) {
-            ypr[1] = PI - ypr[1];
+            ypr[1] = M_PI - ypr[1];
         } else {
-            ypr[1] = -PI - ypr[1];
+            ypr[1] = -M_PI - ypr[1];
         }
     }
 

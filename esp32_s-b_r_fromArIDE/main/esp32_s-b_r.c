@@ -27,10 +27,11 @@ static const char *TAG = "self-balancing-robot";
 static float pid_K = 6.0f;
 static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
-static float pitch = 0.0f, setPitch = 0.0f, u = 0.0f;
+static float pitch = 0.0f, setPitch = 178.0f, u = 0.0f;
 
 static volatile bool mpuInterrupt = false;
 uint16_t packetSize;
+bool dmpReady = false;
 
 // Motor deadband compensation parameters
 static float min_pwm_percent = 0.0f;  // Minimum PWM percentage for motor movement
@@ -215,7 +216,7 @@ void init_debug_features(void) {
 #define ACCEL_START_REG 0x3B
 #define GYRO_START_REG 0x43
 #define WHO_AM_I_REG 0x75
-#define INT_STATUS_REG 0x3A
+#define MPU6050_INT_STATUS_REG 0x3A
 
 #define LEDC_TIMER              LEDC_TIMER_0
 #define LEDC_MODE               LEDC_LOW_SPEED_MODE
@@ -341,44 +342,44 @@ static esp_err_t mpu6050_interrupt_init()
 //     gpio_set_level(L298N_IN4_GPIO, 0);
 // }
 
-static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
-{
-    esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, ACC_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+// static esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
+// {
+//     esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, ACC_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     
-    if (ret == ESP_ERR_TIMEOUT) {
-        // ESP_LOGI(TAG, "I2C read timeout, attempting bus recovery");
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("READ_TIMEOUT", ret);
-        #endif
-        vTaskDelay(pdMS_TO_TICKS(2));
-    } else if (ret != ESP_OK) {
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("READ_ERROR", ret);
-        #endif
-    }
+//     if (ret == ESP_ERR_TIMEOUT) {
+//         // ESP_LOGI(TAG, "I2C read timeout, attempting bus recovery");
+//         #if PYTHON_PLOTTER_DEBUG
+//         send_i2c_error("READ_TIMEOUT", ret);
+//         #endif
+//         vTaskDelay(pdMS_TO_TICKS(2));
+//     } else if (ret != ESP_OK) {
+//         #if PYTHON_PLOTTER_DEBUG
+//         send_i2c_error("READ_ERROR", ret);
+//         #endif
+//     }
     
-    return ret;
-}
+//     return ret;
+// }
 
-static esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t data)
-{
-    uint8_t write_buf[2] = {reg_addr, data};
-    esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, ACC_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+// static esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t data)
+// {
+//     uint8_t write_buf[2] = {reg_addr, data};
+//     esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, ACC_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     
-    if (ret == ESP_ERR_TIMEOUT) {
-        // ESP_LOGI(TAG, "I2C write timeout");
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("WRITE_TIMEOUT", ret);
-        #endif
-        vTaskDelay(pdMS_TO_TICKS(2));
-    } else if (ret != ESP_OK) {
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("WRITE_ERROR", ret);
-        #endif
-    }
+//     if (ret == ESP_ERR_TIMEOUT) {
+//         // ESP_LOGI(TAG, "I2C write timeout");
+//         #if PYTHON_PLOTTER_DEBUG
+//         send_i2c_error("WRITE_TIMEOUT", ret);
+//         #endif
+//         vTaskDelay(pdMS_TO_TICKS(2));
+//     } else if (ret != ESP_OK) {
+//         #if PYTHON_PLOTTER_DEBUG
+//         send_i2c_error("WRITE_ERROR", ret);
+//         #endif
+//     }
     
-    return ret;
-}
+//     return ret;
+// }
 
 static esp_err_t i2c_master_init(void)
 {
@@ -565,11 +566,11 @@ void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offse
 
 void regular_100Hz_task(void *arg)
 {
-    float accxf, accyf, acczf;
-    float gyroxf, gyroyf, gyrozf;
+    // float accxf, accyf, acczf;
+    // float gyroxf, gyroyf, gyrozf;
     TickType_t last_wake_time = xTaskGetTickCount();
-    float gx_offset, gy_offset, gz_offset;
-    const float max_u = 250.0f;
+    // float gx_offset, gy_offset, gz_offset;
+    const float max_u = 255.0f;
     static float pwm_ratio;
     uint16_t fifoCount;
     uint8_t fifoBuffer[64];
@@ -581,9 +582,9 @@ void regular_100Hz_task(void *arg)
     const uint32_t max_consecutive_failures = 10;
 
     // calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
-    gx_offset = -4.084f; // offsets calculated from previous calibrations
-    gy_offset = -0.798f;
-    gz_offset = 0.077f;
+    // gx_offset = -4.084f; // offsets calculated from previous calibrations
+    // gy_offset = -0.798f;
+    // gz_offset = 0.077f;
 
     while (true) {
         if (!dmpReady) {
@@ -595,23 +596,23 @@ void regular_100Hz_task(void *arg)
 
             uint8_t mpuIntStatus;
             mpu6050_register_read(MPU6050_INT_STATUS_REG, &mpuIntStatus, 1);
-            fifoCount = mpu6050_get_fifo_count();
+            mpu6050_get_fifo_count(&fifoCount);
             if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
                 ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
                 mpu6050_reset_fifo();
             }
             if (mpuIntStatus & 0x01) {
                 while(fifoCount < packetSize) {
-                    fifoCount = mpu6050_get_fifo_count();
+                    mpu6050_get_fifo_count(&fifoCount);
                 }
 
                 getFIFOBytes(fifoBuffer, packetSize);
                 fifoCount -= packetSize;
 
                 mpu6050_parse_fifo_packet(fifoBuffer, &q, &gravity, ypr);
-                double angle = ypr[1] * 180 / M_PI;
-                if(angle < 0) {
-                    angle += 360;
+                pitch = ypr[1] * 180 / M_PI;
+                if(pitch < 0) {
+                    pitch += 360;
                 }
 
                 // bool sensor_read_success = true;
@@ -664,21 +665,37 @@ void regular_100Hz_task(void *arg)
         u = PID(pitch, setPitch);
         if (u > max_u) u = max_u;
         if (u < -max_u) u = -max_u;
+
+        float abs_control = fabs(u);
+        pwm_ratio = (abs_control / max_u);
         
         // Mapping pwm ratio from 0-250 to min pwm percentage to 1.0
-        pwm_ratio = compensate_motor_deadband(u, max_u);
+        // pwm_ratio = compensate_motor_deadband(u, max_u);
 
-        if (consecutive_failures < max_consecutive_failures / 2) {
-            if (pwm_ratio < (motor_threshold_percent / 100.0f)) {
-                stop();
-            } else if (u > 0) {
-                backward(pwm_ratio);
-            } else {
-                forward(pwm_ratio);
+        if(pitch>150.0f && pitch < 200) {
+            if(u>0)
+            {
+            forward(pwm_ratio);
+            }
+            else if (u<0)
+            {
+            backward(pwm_ratio);
             }
         } else {
             stop();
         }
+
+        // if (consecutive_failures < max_consecutive_failures / 2) {
+        //     if (pwm_ratio < (motor_threshold_percent / 100.0f)) {
+        //         stop();
+        //     } else if (u > 0) {
+        //         backward(pwm_ratio);
+        //     } else {
+        //         forward(pwm_ratio);
+        //     }
+        // } else {
+        //     stop();
+        // }
 
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
     }
@@ -758,8 +775,8 @@ void app_main(void)
     // uint8_t i2c_receive_buf[6];
     // uint8_t i2c_transmit_buf[6];
 
-    // ESP_ERROR_CHECK(i2c_master_init());
-    // ESP_LOGI(TAG, "I2C initialized successfully");
+    ESP_ERROR_CHECK(i2c_master_init());
+    ESP_LOGI(TAG, "I2C initialized successfully");
 
     // ESP_ERROR_CHECK(mpu6050_register_read(WHO_AM_I_REG, i2c_receive_buf, 1));
     // ESP_LOGI(TAG, "WHO_AM_I = %X", i2c_receive_buf[0]);
@@ -786,18 +803,19 @@ void app_main(void)
     mpu6050_init();
 
     uint8_t devStatus;
-    devStatus = dmpInitialize();
-    mpu_6050_setXGyroOffset(220);
-    mpu_6050_setYGyroOffset(76);
-    mpu_6050_setZGyroOffset(-85);
-    mpu_6050_setZAccelOffset(1688);
+    devStatus = mpu6050_dmp_initialize();
+    mpu6050_set_x_gyro_offset(220);
+    mpu6050_set_y_gyro_offset(76);
+    mpu6050_set_z_gyro_offset(-85);
+    mpu6050_set_z_accel_offset(1688);
     if (devStatus == 0) {
         mpu6050_set_dmp_enabled(true);
         esp_err_t ret = mpu6050_interrupt_init();
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to initialize MPU6050 interrupt GPIO");
         }
-        mpuInterrupt = false;
+        uint8_t mpuIntStatus;
+        mpu6050_register_read(MPU6050_INT_STATUS_REG, &mpuIntStatus, 1);
 
         dmpReady = true;
         packetSize = mpu6050_get_fifo_packet_size();

@@ -5,25 +5,6 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include "esp_log.h"
-#include "driver/i2c.h"
-#include <math.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
-#include "driver/gpio.h"
-
-#define MPU6050_ADDR             0x68
-#define MPU6050_INT_PIN          4
-#define MPU6050_DMP_CODE_SIZE    1929
-#define MPU6050_DMP_PACKET_SIZE  42
-
-#define MPU6050_USER_CTRL_REG    0x6A
-#define MPU6050_INT_STATUS_REG   0x3A
-#define MPU6050_FIFO_COUNT_REG   0x72
-#define MPU6050_FIFO_R_W_REG     0x74
 
 typedef struct {
   float w, x, y, z;
@@ -60,11 +41,15 @@ esp_err_t mpu6050_set_motion_detection_duration(uint8_t duration);
 esp_err_t mpu6050_set_zero_motion_detection_duration(uint8_t duration);
 
 // I2C low-level access helpers
+esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len);
+esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t *data, size_t len);
 esp_err_t mpu6050_write_bit(uint8_t reg, uint8_t bit_num, bool value);
 esp_err_t mpu6050_write_bits(uint8_t reg, uint8_t bit_start, uint8_t length, uint8_t data);
 esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data);
+esp_err_t mpu6050_write_bytes(uint8_t reg, const uint8_t *data, size_t len);
 esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t *data);
 esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *buffer, size_t len);
+static esp_err_t mpu6050_write_word(uint8_t reg_high, int16_t value);
 esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address);
 
 // gyro offset setters
