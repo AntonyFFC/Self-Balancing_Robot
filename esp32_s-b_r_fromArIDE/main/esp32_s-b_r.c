@@ -24,7 +24,7 @@
 
 static const char *TAG = "self-balancing-robot";
 
-static float pid_K = 6.0f;
+static float pid_K = 9.0f;
 static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
 static float pitch = 0.0f, setPitch = 178.0f, u = 0.0f;
@@ -592,6 +592,7 @@ void regular_100Hz_task(void *arg)
         }
 
         if (mpuInterrupt) {
+            ESP_LOGW(TAG, "MPU interrupt received");
             mpuInterrupt = false;
 
             uint8_t mpuIntStatus;
@@ -601,7 +602,8 @@ void regular_100Hz_task(void *arg)
                 ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
                 mpu6050_reset_fifo();
             }
-            if (mpuIntStatus & 0x01) {
+            else if (mpuIntStatus & 0x01) {
+                ESP_LOGW(TAG, "DMP interrupt received");
                 while(fifoCount < packetSize) {
                     mpu6050_get_fifo_count(&fifoCount);
                 }
@@ -663,6 +665,10 @@ void regular_100Hz_task(void *arg)
         // }
 
         u = PID(pitch, setPitch);
+
+        // ESP_LOGW(TAG, "Pitch: %.2f, Setpoint: %.2f", pitch, setPitch);
+        // ESP_LOGW(TAG, "PID output: %.2f", u);
+
         if (u > max_u) u = max_u;
         if (u < -max_u) u = -max_u;
 
@@ -809,7 +815,10 @@ void app_main(void)
     mpu6050_set_z_gyro_offset(-85);
     mpu6050_set_z_accel_offset(1688);
     if (devStatus == 0) {
+        ESP_LOGW(TAG, "INT pin state before enabling DMP: %d", gpio_get_level(MPU_INT));
         mpu6050_set_dmp_enabled(true);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        ESP_LOGW(TAG, "INT pin state after 1s: %d", gpio_get_level(MPU_INT));
         esp_err_t ret = mpu6050_interrupt_init();
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to initialize MPU6050 interrupt GPIO");
