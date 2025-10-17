@@ -241,7 +241,7 @@ void init_debug_features(void) {
 #define MPU_INT 4
 
 
-#define TASK_PERIOD_MS 10
+#define TASK_PERIOD_MS 10 // changed from 10
 
 static void pwm_init(void)
 {
@@ -572,11 +572,11 @@ void regular_100Hz_task(void *arg)
     // float gx_offset, gy_offset, gz_offset;
     const float max_u = 255.0f;
     static float pwm_ratio;
-    uint16_t fifoCount;
-    uint8_t fifoBuffer[64];
-    Quaternion q;
-    VectorFloat gravity;
-    float ypr[3];
+    static uint16_t fifoCount;
+    static uint8_t fifoBuffer[64];
+    static Quaternion q;
+    static VectorFloat gravity;
+    static float ypr[3];
     
     static uint32_t consecutive_failures = 0;
     const uint32_t max_consecutive_failures = 10;

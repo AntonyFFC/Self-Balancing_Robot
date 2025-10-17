@@ -15,7 +15,7 @@
 #define MPU_INT 4
 #define MPU6050_ADDR 0x68
 #define MPU6050_USER_CTRL_REG 0x6A
-#define MPU6050_USERCTRL_DMP_EN_BIT 6
+#define MPU6050_USERCTRL_DMP_EN_BIT 7
 #define MPU6050_INT_STATUS_REG 0x3A
 #define MPU6050_FIFO_COUNT_REG 0x72
 #define MPU6050_FIFO_R_W_REG 0x74
@@ -260,6 +260,8 @@ esp_err_t mpu6050_dmp_initialize(void)
     ret = mpu6050_write_prog_memory_block(dmpMemory, MPU6050_DMP_CODE_SIZE, 0, 0);
     if (ret != ESP_OK) return ret;
 
+
+    ESP_LOGI(TAG, "Configuring DMP and motion detection...");
     uint8_t dmp_update[] = {0x00, MPU6050_DMP_FIFO_RATE_DIVISOR};
     mpu6050_write_prog_memory_block(dmp_update, 2, 0x02, 0x16);
 
@@ -304,7 +306,10 @@ esp_err_t mpu6050_dmp_initialize(void)
     ret = mpu6050_reset_fifo();
     if (ret != ESP_OK) return ret;
 
-    mpu6050_read_byte(MPU6050_INT_STATUS_REG, 0);
+    ESP_LOGI(TAG, "Reading INT STATUS");
+    uint8_t int_status;
+    mpu6050_read_byte(MPU6050_INT_STATUS_REG, &int_status);
+    ESP_LOGI(TAG, "INT STATUS: 0x%02X", int_status);
 
     return ESP_OK; // return 0 on success
 }
@@ -361,7 +366,7 @@ esp_err_t mpu6050_set_accel_range(uint8_t range)
 // Enable FIFO
 esp_err_t mpu6050_set_fifo_enabled(bool enabled)
 {
-    return mpu6050_write_bit(0x6A, 6, enabled);
+    return mpu6050_write_bit(MPU6050_USER_CTRL_REG, 6, enabled);
 }
 
 esp_err_t mpu6050_reset()
@@ -372,25 +377,18 @@ esp_err_t mpu6050_reset()
 // Reset FIFO buffer
 esp_err_t mpu6050_reset_fifo()
 {
-    return mpu6050_write_bit(0x6A, 2, true);
+    return mpu6050_write_bit(MPU6050_USER_CTRL_REG, 2, true);
 }
 
 // Reset DMP
 esp_err_t mpu6050_reset_dmp()
 {
-    return mpu6050_write_bit(0x6A, 3, true);
+    return mpu6050_write_bit(MPU6050_USER_CTRL_REG, 3, true);
 }
 
 esp_err_t mpu6050_set_dmp_enabled(bool enabled)
 {
-    uint8_t reg_val;
-    esp_err_t ret = mpu6050_read_byte(MPU6050_USER_CTRL_REG, &reg_val);
-    if (ret != ESP_OK) return ret;
-    if (enabled)
-        reg_val |= (1 << MPU6050_USERCTRL_DMP_EN_BIT);
-    else
-        reg_val &= ~(1 << MPU6050_USERCTRL_DMP_EN_BIT);
-    return mpu6050_write_byte(MPU6050_USER_CTRL_REG, reg_val);
+    return mpu6050_write_bit(MPU6050_USER_CTRL_REG, MPU6050_USERCTRL_DMP_EN_BIT, enabled);
 }
 
 // Set DMP configuration byte 1
