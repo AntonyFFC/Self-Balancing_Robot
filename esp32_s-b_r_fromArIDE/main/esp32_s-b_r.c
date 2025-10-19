@@ -24,6 +24,9 @@
 
 static const char *TAG = "self-balancing-robot";
 
+TaskHandle_t mpu_task_handle = NULL;
+SemaphoreHandle_t pitch_mutex;
+
 static float pid_K = 9.0f;
 static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
@@ -301,7 +304,9 @@ static void pwm_init(void)
 
 static void IRAM_ATTR mpu_isr_handler(void* arg)
 {
-    mpuInterrupt = true;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xTaskNotifyFromISR(mpu_task_handle, 0, eNoAction, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 static esp_err_t mpu6050_interrupt_init()
@@ -564,121 +569,217 @@ void stop()
 
 void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset);
 
+// void regular_100Hz_task(void *arg)
+// {
+//     // float accxf, accyf, acczf;
+//     // float gyroxf, gyroyf, gyrozf;
+//     TickType_t last_wake_time = xTaskGetTickCount();
+//     // float gx_offset, gy_offset, gz_offset;
+//     const float max_u = 255.0f;
+//     static float pwm_ratio;
+//     static uint16_t fifoCount;
+//     static uint8_t fifoBuffer[64];
+//     static Quaternion q;
+//     static VectorFloat gravity;
+//     static float ypr[3];
+    
+//     static uint32_t consecutive_failures = 0;
+//     const uint32_t max_consecutive_failures = 10;
+
+//     // calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
+//     // gx_offset = -4.084f; // offsets calculated from previous calibrations
+//     // gy_offset = -0.798f;
+//     // gz_offset = 0.077f;
+
+//     while (true) {
+//         if (!dmpReady) {
+//             return;
+//         }
+
+//         if (mpuInterrupt) {
+//             ESP_LOGW(TAG, "MPU interrupt received");
+//             mpuInterrupt = false;
+
+//             uint8_t mpuIntStatus;
+//             mpu6050_register_read(MPU6050_INT_STATUS_REG, &mpuIntStatus, 1);
+//             mpu6050_get_fifo_count(&fifoCount);
+//             if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
+//                 ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
+//                 mpu6050_reset_fifo();
+//             }
+//             else if (mpuIntStatus & 0x01) {
+//                 ESP_LOGW(TAG, "DMP interrupt received");
+//                 while(fifoCount < packetSize) {
+//                     mpu6050_get_fifo_count(&fifoCount);
+//                 }
+
+//                 getFIFOBytes(fifoBuffer, packetSize);
+//                 fifoCount -= packetSize;
+
+//                 mpu6050_parse_fifo_packet(fifoBuffer, &q, &gravity, ypr);
+//                 pitch = ypr[1] * 180 / M_PI;
+//                 if(pitch < 0) {
+//                     pitch += 360;
+//                 }
+
+//                 // bool sensor_read_success = true;
+    
+//                 // static float prev_accxf = 0.0f, prev_accyf = 0.0f, prev_acczf = 0.0f;
+//                 // static float prev_gyroxf = 0.0f, prev_gyroyf = 0.0f, prev_gyrozf = 0.0f;
+
+//                 // readAccelerometer(&accxf, &accyf, &acczf);
+//                 // if (accxf == 0.0f && accyf == 0.0f && acczf == 0.0f) {
+//                 //     sensor_read_success = false;
+//                 //     accxf = prev_accxf;
+//                 //     accyf = prev_accyf;
+//                 //     acczf = prev_acczf;
+//                 // } else {
+//                 //     prev_accxf = accxf;
+//                 //     prev_accyf = accyf;
+//                 //     prev_acczf = acczf;
+//                 // }
+                
+//                 // readGyroscope(&gyroxf, &gyroyf, &gyrozf);
+//                 // if (gyroxf == 0.0f && gyroyf == 0.0f && gyrozf == 0.0f) {
+//                 //     sensor_read_success = false;
+//                 //     gyroxf = prev_gyroxf;
+//                 //     gyroyf = prev_gyroyf;
+//                 //     gyrozf = prev_gyrozf;
+//                 // } else {
+//                 //     prev_gyroxf = gyroxf;
+//                 //     prev_gyroyf = gyroyf;
+//                 //     prev_gyrozf = gyrozf;
+//                 // }
+
+//                 // calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
+//             }
+//         }
+
+//         // if (!sensor_read_success) {
+//         //     consecutive_failures++;
+//         //     // ESP_LOGI(TAG, "Sensor read failed, using previous values (%lu consecutive failures)", consecutive_failures);
+            
+//         //     if (consecutive_failures > max_consecutive_failures) {
+//         //         ESP_LOGE(TAG, "Too many sensor failures, stopping robot for safety");
+//         //         stop();
+//         //         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
+//         //         continue;
+//         //     }
+//         // } else {
+//         //     consecutive_failures = 0;
+//         // }
+
+//         u = PID(pitch, setPitch);
+
+//         // ESP_LOGW(TAG, "Pitch: %.2f, Setpoint: %.2f", pitch, setPitch);
+//         // ESP_LOGW(TAG, "PID output: %.2f", u);
+
+//         if (u > max_u) u = max_u;
+//         if (u < -max_u) u = -max_u;
+
+//         float abs_control = fabs(u);
+//         pwm_ratio = (abs_control / max_u);
+        
+//         // Mapping pwm ratio from 0-250 to min pwm percentage to 1.0
+//         // pwm_ratio = compensate_motor_deadband(u, max_u);
+
+//         if(pitch>150.0f && pitch < 200) {
+//             if(u>0)
+//             {
+//             forward(pwm_ratio);
+//             }
+//             else if (u<0)
+//             {
+//             backward(pwm_ratio);
+//             }
+//         } else {
+//             stop();
+//         }
+
+//         // if (consecutive_failures < max_consecutive_failures / 2) {
+//         //     if (pwm_ratio < (motor_threshold_percent / 100.0f)) {
+//         //         stop();
+//         //     } else if (u > 0) {
+//         //         backward(pwm_ratio);
+//         //     } else {
+//         //         forward(pwm_ratio);
+//         //     }
+//         // } else {
+//         //     stop();
+//         // }
+
+//         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
+//     }
+// }
+
 void regular_100Hz_task(void *arg)
 {
-    // float accxf, accyf, acczf;
-    // float gyroxf, gyroyf, gyrozf;
+    for(;;)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        uint8_t mpuIntStatus;
+        uint16_t fifoCount;
+        uint8_t fifoBuffer[64];
+        float newPitch;
+        static Quaternion q;
+        static VectorFloat gravity;
+        static float ypr[3];
+
+        mpu6050_register_read(MPU6050_INT_STATUS_REG, &mpuIntStatus, 1);
+        mpu6050_get_fifo_count(&fifoCount);
+
+        if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
+            ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
+            mpu6050_reset_fifo();
+            continue;
+        }
+
+        if (mpuIntStatus & 0x01) {
+            while (fifoCount < packetSize) {
+                mpu6050_get_fifo_count(&fifoCount);
+            }
+
+            getFIFOBytes(fifoBuffer, packetSize);
+            mpu6050_parse_fifo_packet(fifoBuffer, &q, &gravity, ypr);
+
+            newPitch = ypr[1] * 180 / M_PI;
+            if (newPitch < 0) newPitch += 360;
+
+            xSemaphoreTake(pitch_mutex, portMAX_DELAY);
+            pitch = newPitch;
+            xSemaphoreGive(pitch_mutex);
+        }
+    }
+}
+
+
+void regulator_task(void *arg)
+{
     TickType_t last_wake_time = xTaskGetTickCount();
-    // float gx_offset, gy_offset, gz_offset;
     const float max_u = 255.0f;
-    static float pwm_ratio;
-    static uint16_t fifoCount;
-    static uint8_t fifoBuffer[64];
-    static Quaternion q;
-    static VectorFloat gravity;
-    static float ypr[3];
     
-    static uint32_t consecutive_failures = 0;
-    const uint32_t max_consecutive_failures = 10;
 
-    // calibrate_gyroscope_offset(&gx_offset, &gy_offset, &gz_offset);
-    // gx_offset = -4.084f; // offsets calculated from previous calibrations
-    // gy_offset = -0.798f;
-    // gz_offset = 0.077f;
-
-    while (true) {
+    while (true)
+    {
         if (!dmpReady) {
             return;
         }
 
-        if (mpuInterrupt) {
-            ESP_LOGW(TAG, "MPU interrupt received");
-            mpuInterrupt = false;
+        xSemaphoreTake(pitch_mutex, portMAX_DELAY);
+        float local_pitch = pitch;
+        xSemaphoreGive(pitch_mutex);
 
-            uint8_t mpuIntStatus;
-            mpu6050_register_read(MPU6050_INT_STATUS_REG, &mpuIntStatus, 1);
-            mpu6050_get_fifo_count(&fifoCount);
-            if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-                ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
-                mpu6050_reset_fifo();
-            }
-            else if (mpuIntStatus & 0x01) {
-                ESP_LOGW(TAG, "DMP interrupt received");
-                while(fifoCount < packetSize) {
-                    mpu6050_get_fifo_count(&fifoCount);
-                }
-
-                getFIFOBytes(fifoBuffer, packetSize);
-                fifoCount -= packetSize;
-
-                mpu6050_parse_fifo_packet(fifoBuffer, &q, &gravity, ypr);
-                pitch = ypr[1] * 180 / M_PI;
-                if(pitch < 0) {
-                    pitch += 360;
-                }
-
-                // bool sensor_read_success = true;
-    
-                // static float prev_accxf = 0.0f, prev_accyf = 0.0f, prev_acczf = 0.0f;
-                // static float prev_gyroxf = 0.0f, prev_gyroyf = 0.0f, prev_gyrozf = 0.0f;
-
-                // readAccelerometer(&accxf, &accyf, &acczf);
-                // if (accxf == 0.0f && accyf == 0.0f && acczf == 0.0f) {
-                //     sensor_read_success = false;
-                //     accxf = prev_accxf;
-                //     accyf = prev_accyf;
-                //     acczf = prev_acczf;
-                // } else {
-                //     prev_accxf = accxf;
-                //     prev_accyf = accyf;
-                //     prev_acczf = acczf;
-                // }
-                
-                // readGyroscope(&gyroxf, &gyroyf, &gyrozf);
-                // if (gyroxf == 0.0f && gyroyf == 0.0f && gyrozf == 0.0f) {
-                //     sensor_read_success = false;
-                //     gyroxf = prev_gyroxf;
-                //     gyroyf = prev_gyroyf;
-                //     gyrozf = prev_gyrozf;
-                // } else {
-                //     prev_gyroxf = gyroxf;
-                //     prev_gyroyf = gyroyf;
-                //     prev_gyrozf = gyrozf;
-                // }
-
-                // calculatePitch(&pitch, accxf, accyf, acczf, gyroxf - gx_offset, TASK_PERIOD_MS / 1000.0f);
-            }
-        }
-
-        // if (!sensor_read_success) {
-        //     consecutive_failures++;
-        //     // ESP_LOGI(TAG, "Sensor read failed, using previous values (%lu consecutive failures)", consecutive_failures);
-            
-        //     if (consecutive_failures > max_consecutive_failures) {
-        //         ESP_LOGE(TAG, "Too many sensor failures, stopping robot for safety");
-        //         stop();
-        //         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
-        //         continue;
-        //     }
-        // } else {
-        //     consecutive_failures = 0;
-        // }
-
-        u = PID(pitch, setPitch);
-
-        // ESP_LOGW(TAG, "Pitch: %.2f, Setpoint: %.2f", pitch, setPitch);
-        // ESP_LOGW(TAG, "PID output: %.2f", u);
+        u = PID(local_pitch, setPitch);
 
         if (u > max_u) u = max_u;
         if (u < -max_u) u = -max_u;
 
         float abs_control = fabs(u);
+        float pwm_ratio;
         pwm_ratio = (abs_control / max_u);
-        
-        // Mapping pwm ratio from 0-250 to min pwm percentage to 1.0
-        // pwm_ratio = compensate_motor_deadband(u, max_u);
 
-        if(pitch>150.0f && pitch < 200) {
+        if(local_pitch>150.0f && local_pitch < 200) {
             if(u>0)
             {
             forward(pwm_ratio);
@@ -690,21 +791,11 @@ void regular_100Hz_task(void *arg)
         } else {
             stop();
         }
-
-        // if (consecutive_failures < max_consecutive_failures / 2) {
-        //     if (pwm_ratio < (motor_threshold_percent / 100.0f)) {
-        //         stop();
-        //     } else if (u > 0) {
-        //         backward(pwm_ratio);
-        //     } else {
-        //         forward(pwm_ratio);
-        //     }
-        // } else {
-        //     stop();
-        // }
-
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
     }
+    
+    
+
 }
 
 void udp_sender_task(void *arg)
@@ -862,7 +953,8 @@ void app_main(void)
     //     ESP_LOGI(TAG, "Failed to create UDP queue");
     // }
 
-    xTaskCreate(regular_100Hz_task, "100Hz_task", 4096, NULL, 5, NULL);
+    xTaskCreate(regular_100Hz_task, "100Hz_task", 4096, NULL, 10, &mpu_task_handle);
+    xTaskCreate(regulator_task, "regulator_task", 4096, NULL, 5, NULL);
     
 #if PYTHON_PLOTTER_DEBUG
     xTaskCreate(udp_sender_task, "udp_sender_task", 4096, NULL, 3, NULL);
