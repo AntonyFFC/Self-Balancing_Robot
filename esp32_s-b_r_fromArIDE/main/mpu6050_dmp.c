@@ -74,6 +74,9 @@
 #define MPU6050_RA_ZG_OFFS_USRH   0x17
 #define MPU6050_RA_ZA_OFFS_H      0x06
 
+#define MPU6050_INTERRUPT_FIFO_OFLOW_BIT 4
+#define MPU6050_INTERRUPT_DMP_INT_BIT        1 
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -237,7 +240,7 @@ esp_err_t mpu6050_dmp_initialize(void)
     ret = mpu6050_set_clock_source(0x03); // PLL Z Gyro
     if (ret != ESP_OK) return ret;
     
-    ret = mpu6050_set_int_enabled((1 << 4) | (1 << 5));
+    ret = mpu6050_set_int_enabled((1 << MPU6050_INTERRUPT_FIFO_OFLOW_BIT) | (1 << MPU6050_INTERRUPT_DMP_INT_BIT));
     if (ret != ESP_OK) return ret;
 
     // Set sample rate to 200 Hz (1kHz / (1 + 4) = 200Hz)

@@ -719,9 +719,7 @@ void regular_100Hz_task(void *arg)
     {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        if (!dmpReady) {
-            return;
-        }
+        // gpio_intr_disable(MPU_INT);
 
         uint8_t mpuIntStatus;
         uint16_t fifoCount;
@@ -737,6 +735,7 @@ void regular_100Hz_task(void *arg)
         if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
             ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
             mpu6050_reset_fifo();
+            // gpio_intr_enable(MPU_INT);
             continue;
         }
 
@@ -753,6 +752,7 @@ void regular_100Hz_task(void *arg)
 
             pitch = newPitch;
         }
+        // gpio_intr_enable(MPU_INT);
     }
 }
 
