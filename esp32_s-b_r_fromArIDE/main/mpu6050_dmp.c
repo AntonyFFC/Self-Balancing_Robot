@@ -444,7 +444,13 @@ esp_err_t mpu6050_get_fifo_count(uint16_t *count)
 
 esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len)
 {
-    return mpu6050_read_bytes(MPU6050_FIFO_R_W_REG, buf, len);
+    esp_err_t ret = mpu6050_read_bytes(MPU6050_FIFO_R_W_REG, buf, len);
+    if (ret == ESP_OK) {
+        ESP_LOGD(TAG, "mpu6050_read_fifo success, len=%u", len);
+    } else {
+        ESP_LOGE(TAG, "mpu6050_read_fifo failed: 0x%02x", ret);
+    }
+    return ret;
 }
 
 esp_err_t mpu6050_set_x_gyro_offset(int16_t offset)
@@ -477,7 +483,13 @@ esp_err_t mpu6050_set_z_accel_offset(int16_t offset)
 
 esp_err_t getFIFOBytes(uint8_t *data, uint8_t length) {
     if(length > 0){
-        return mpu6050_read_bytes(MPU6050_RA_FIFO_R_W, data, length);
+        esp_err_t ret = mpu6050_read_bytes(MPU6050_RA_FIFO_R_W, data, length);
+        if (ret == ESP_OK) {
+            ESP_LOGD(TAG, "getFIFOBytes read %u bytes", length);
+        } else {
+            ESP_LOGE(TAG, "getFIFOBytes failed: 0x%02x", ret);
+        }
+        return ret;
     }
     return ESP_ERR_INVALID_ARG;
 }

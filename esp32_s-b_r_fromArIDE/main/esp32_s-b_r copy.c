@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "driver/i2c.h"
 #include <math.h>
 #include "freertos/FreeRTOS.h"
@@ -305,7 +306,12 @@ static void pwm_init(void)
 static void IRAM_ATTR mpu_isr_handler(void* arg)
 {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    // xTaskNotifyFromISR(mpu_task_handle, 0, eNoAction, &xHigherPriorityTaskWoken);
+    // Disable further GPIO interrupts for the MPU pin to avoid repeated ISR triggers
+    // while the FIFO is being processed in the task.
+    gpio_intr_disable(MPU_INT);
+
+    // Notify the MPU processing task that data is ready. Use the "give" variant
+    // which pairs with ulTaskNotifyTake() used in the task.
     vTaskNotifyGiveFromISR(mpu_task_handle, &xHigherPriorityTaskWoken);
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
@@ -717,6 +723,7 @@ void regular_100Hz_task(void *arg)
 {
     for(;;)
     {
+        // Wait until ISR gives notification that data is ready
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         if (!dmpReady) {
@@ -733,26 +740,119 @@ void regular_100Hz_task(void *arg)
 
         mpu6050_register_read(MPU6050_INT_STATUS_REG, &mpuIntStatus, 1);
         mpu6050_get_fifo_count(&fifoCount);
+        int64_t t_now = esp_timer_get_time(); // microseconds
+        ESP_LOGI(TAG, "INT status=0x%02X fifo=%u t=%lldus", mpuIntStatus, fifoCount, t_now);
 
         if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-            ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
-            mpu6050_reset_fifo();
+            ESP_LOGW(TAG, "FIFO overflow detected, attempting robust recovery");
+
+            // Log current hardware fifo count
+            uint16_t hw_before = 0;
+            if (mpu6050_get_fifo_count(&hw_before) == ESP_OK) {
+                ESP_LOGI(TAG, "Overflow diagnostics: hw fifo before recovery = %u", hw_before);
+            } else {
+                ESP_LOGE(TAG, "Failed to read hw fifo count before recovery");
+            }
+
+            // Try peeking a few bytes for diagnostics (non-destructive attempt)
+            uint8_t peek_buf[16] = {0};
+            if (hw_before >= 1) {
+                uint16_t to_read = (hw_before < sizeof(peek_buf)) ? hw_before : sizeof(peek_buf);
+                esp_err_t peek_ret = mpu6050_read_fifo(peek_buf, to_read);
+                if (peek_ret == ESP_OK) {
+                    ESP_LOGI(TAG, "Peeked %u bytes from FIFO:", to_read);
+                    for (uint16_t i = 0; i < to_read; ++i) {
+                        ESP_LOGI(TAG, "  [%u]=0x%02X", i, peek_buf[i]);
+                    }
+                } else {
+                    ESP_LOGE(TAG, "Failed to peek FIFO: 0x%02x", peek_ret);
+                }
+            }
+
+            // Robust recovery sequence: disable DMP, toggle FIFO, reset FIFO, re-enable DMP
+            esp_err_t dmp_off = mpu6050_set_dmp_enabled(false);
+            ESP_LOGI(TAG, "mpu set_dmp_enabled(false) returned: 0x%02x", dmp_off);
+
+            esp_err_t fifo_disable = mpu6050_set_fifo_enabled(false);
+            ESP_LOGI(TAG, "mpu set_fifo_enabled(false) returned: 0x%02x", fifo_disable);
+
+            esp_err_t reset_ret = mpu6050_reset_fifo();
+            if (reset_ret == ESP_OK) {
+                ESP_LOGI(TAG, "FIFO reset succeeded");
+            } else {
+                ESP_LOGE(TAG, "FIFO reset failed: 0x%02x", reset_ret);
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(5));
+
+            esp_err_t fifo_enable = mpu6050_set_fifo_enabled(true);
+            ESP_LOGI(TAG, "mpu set_fifo_enabled(true) returned: 0x%02x", fifo_enable);
+
+            esp_err_t dmp_on = mpu6050_set_dmp_enabled(true);
+            ESP_LOGI(TAG, "mpu set_dmp_enabled(true) returned: 0x%02x", dmp_on);
+
+            // Allow time for the MPU to update
+            vTaskDelay(pdMS_TO_TICKS(20));
+
+            // Read back FIFO count and INT status to verify the recovery
+            uint16_t hw_after = 0;
+            if (mpu6050_get_fifo_count(&hw_after) == ESP_OK) {
+                ESP_LOGI(TAG, "Overflow diagnostics: hw fifo after recovery = %u", hw_after);
+            } else {
+                ESP_LOGE(TAG, "Failed to read hw fifo count after recovery");
+            }
+
+            uint8_t int_after = 0;
+            if (mpu6050_read_byte(MPU6050_INT_STATUS_REG, &int_after) == ESP_OK) {
+                ESP_LOGI(TAG, "Overflow diagnostics: INT_STATUS after recovery = 0x%02X", int_after);
+            } else {
+                ESP_LOGE(TAG, "Failed to read INT_STATUS after recovery");
+            }
+
+            gpio_intr_enable(MPU_INT);
             continue;
         }
 
         if (mpuIntStatus & 0x02) {
-            while (fifoCount < packetSize) {
-                mpu6050_get_fifo_count(&fifoCount);
+            // There may be multiple packets in the FIFO. Drain all complete packets.
+            ESP_LOGI(TAG, "DMP interrupt: initial fifoCount=%u, packetSize=%u", fifoCount, packetSize);
+
+            while (fifoCount >= packetSize) {
+                esp_err_t read_ret = mpu6050_read_fifo(fifoBuffer, packetSize);
+                if (read_ret != ESP_OK) {
+                    ESP_LOGE(TAG, "mpu6050_read_fifo failed: 0x%02x", read_ret);
+                    break;
+                }
+
+                int parse_ret = mpu6050_parse_fifo_packet(fifoBuffer, &q, &gravity, ypr);
+                if (parse_ret != 0) {
+                    ESP_LOGE(TAG, "mpu6050_parse_fifo_packet failed: %d", parse_ret);
+                } else {
+                    newPitch = ypr[1] * 180 / M_PI;
+                    if (newPitch < 0) newPitch += 360;
+                    pitch = newPitch;
+                    ESP_LOGD(TAG, "Parsed packet => pitch=%.3f", newPitch);
+                }
+
+                // Decrease local fifoCount by one packet. This mirrors the Arduino code's
+                // fifoCount -= packetSize and ensures we drain all available packets.
+                fifoCount -= packetSize;
+                ESP_LOGD(TAG, "After read, local fifoCount=%u", fifoCount);
+
+                // Small yield to avoid hogging the bus/CPU
+                vTaskDelay(pdMS_TO_TICKS(0));
             }
 
-            getFIFOBytes(fifoBuffer, packetSize);
-            mpu6050_parse_fifo_packet(fifoBuffer, &q, &gravity, ypr);
-
-            newPitch = ypr[1] * 180 / M_PI;
-            if (newPitch < 0) newPitch += 360;
-
-            pitch = newPitch;
+            // After draining locally, ensure MPU FIFO not in overflow and optionally
+            // sync actual hardware count for diagnostics
+            uint16_t hwCount = 0;
+            if (mpu6050_get_fifo_count(&hwCount) == ESP_OK) {
+                ESP_LOGI(TAG, "Hardware fifoCount after drain = %u", hwCount);
+            }
         }
+
+        // Re-enable the MPU interrupt to allow the next data-ready ISR
+        gpio_intr_enable(MPU_INT);
     }
 }
 
@@ -871,6 +971,8 @@ void app_main(void)
 
     ESP_ERROR_CHECK(i2c_master_init());
     ESP_LOGI(TAG, "I2C initialized successfully");
+    // Enable debug logs for MPU module
+    esp_log_level_set("MPU_DMP", ESP_LOG_DEBUG);
 
     // ESP_ERROR_CHECK(mpu6050_register_read(WHO_AM_I_REG, i2c_receive_buf, 1));
     // ESP_LOGI(TAG, "WHO_AM_I = %X", i2c_receive_buf[0]);
