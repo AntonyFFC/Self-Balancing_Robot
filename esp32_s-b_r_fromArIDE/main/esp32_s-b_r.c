@@ -923,16 +923,16 @@ void app_main(void)
             ret = nvs_flash_init();
         }
         ESP_ERROR_CHECK(ret);
-        wifi_init_sta();
-        while (!wifi_connected) {
-            ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
+        // wifi_init_sta();
+        // while (!wifi_connected) {
+        //     ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
+        //     vTaskDelay(1000 / portTICK_PERIOD_MS);
+        // }
         
     #if PYTHON_PLOTTER_DEBUG
-        init_debug_features();
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Small delay to ensure UDP is ready
-        send_initial_pid_values();
+        // init_debug_features();
+        // vTaskDelay(pdMS_TO_TICKS(1000)); // Small delay to ensure UDP is ready
+        // send_initial_pid_values();
     #else
         ESP_LOGI(TAG, "UDP debug disabled");
     #endif
@@ -950,7 +950,7 @@ void app_main(void)
     }
     
 #if PYTHON_PLOTTER_DEBUG
-    xTaskCreate(udp_sender_task, "udp_sender_task", 4096, NULL, 3, NULL);
-    xTaskCreate(udp_receiver_task, "udp_receiver_task", 4096, NULL, 3, NULL);
+    // xTaskCreate(udp_sender_task, "udp_sender_task", 4096, NULL, 3, NULL);
+    // xTaskCreate(udp_receiver_task, "udp_receiver_task", 4096, NULL, 3, NULL);
 #endif
 }

@@ -43,7 +43,7 @@ fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
 # Pitch comparison plot
 line1, = ax1.plot([], [], 'b-', label='Pitch', linewidth=2)
 line2, = ax1.plot([], [], 'r-', label='Set Pitch', linewidth=2)
-ax1.set_ylim(-60, 60)
+ax1.set_ylim(140, 210)
 ax1.set_xlim(0, 500)
 ax1.set_ylabel("Pitch (degrees)")
 ax1.legend()
