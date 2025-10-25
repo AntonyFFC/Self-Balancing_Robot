@@ -9,17 +9,38 @@
 #include "freertos/queue.h"
 #include "driver/gpio.h"
 
-// Include your I2C low-level headers here
-
 #define TAG "MPU_DMP"
 #define MPU_INT 4
-#define MPU6050_ADDR 0x68
-#define MPU6050_USER_CTRL_REG 0x6A
-#define MPU6050_USERCTRL_DMP_EN_BIT 7
-#define MPU6050_INT_STATUS_REG 0x3A
-#define MPU6050_FIFO_COUNT_REG 0x72
-#define MPU6050_FIFO_R_W_REG 0x74
-#define MPU6050_DMP_CODE_SIZE 1929
+#define MPU6050_DMP_PACKET_SIZE  42
+
+// used MPU6050 registers
+#define XG_OFFS_TC_REG           0x00
+#define ZA_OFFS_H_REG            0x06
+#define XG_OFFS_USRH_REG         0x13
+#define YG_OFFS_USRH_REG         0x15
+#define ZG_OFFS_USRH_REG         0x17
+#define SMPLRT_DIV_REG           0x19
+#define CONFIG_REG               0x1A
+#define GYRO_CONFIG_REG          0x1B
+#define ACCEL_CONFIG_REG         0x1C
+#define MOT_THR_REG              0x1F
+#define ZRMOT_THR_REG            0x20
+#define MOT_DUR_REG              0x21
+#define ZRMOT_DUR_REG            0x22
+#define MPU6050_INT_ENABLE_REG   0x38
+#define INT_STATUS_REG           0x3A
+#define ACCEL_START_REG          0x3B
+#define GYRO_START_REG           0x43
+#define USER_CTRL_REG            0x6A
+#define PWR_MGMT_1_REG           0x6B
+#define BANK_SEL_REG             0x6D
+#define MEM_START_ADDR_REG       0x6E
+#define MEM_R_W_REG              0x6F
+#define DMP_CFG_1_REG            0x70
+#define DMP_CFG_2_REG            0x71
+#define FIFO_COUNT_REG           0x72
+#define FIFO_R_W_REG             0x74
+#define WHO_AM_I_REG             0x75
 
 #define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
 #define I2C_MASTER_SDA_IO           21      /*!< GPIO number used for I2C master data  */
@@ -29,61 +50,30 @@
 #define I2C_MASTER_TX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
 #define I2C_MASTER_RX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */ 
 
-// #define ACC_I2C_ADDR (0b1101000 << 1)
-#define ACC_I2C_ADDR 0x68          /*!< I2C address of MPU6050 accelerometer/gyroscope NOT SHIFTED, only 7 bit*/
-#define ACCEL_START_REG 0x3B
-#define GYRO_START_REG 0x43
-#define WHO_AM_I_REG 0x75
+// #define MPU6050_I2C_ADDR (0b1101000 << 1)
+#define MPU6050_I2C_ADDR 0x68          /*!< I2C address of MPU6050 accelerometer/gyroscope NOT SHIFTED, only 7 bit*/
 
-#define MPU6050_PWR_MGMT_1      0x6B
-#define MPU6050_CLOCK_SEL_BIT   2
-#define MPU6050_CLOCK_SEL_LENGTH 3
-#define MPU6050_WAKE_BIT        6
-#define MPU6050_SLEEP_BIT       6
-#define MPU6050_CLOCK_PLL_XGYRO         0x01
-#define MPU6050_GYRO_FS_250         0x00
-#define MPU6050_ACCEL_FS_2          0x00
+#define CLOCK_PLL_ZGYRO         0x03
+#define GYRO_FS_250         0x00
+#define ACCEL_FS_2          0x00
 
-// DMP config registers
-#define MPU6050_RA_DMP_CFG_1  0x70
-#define MPU6050_RA_DMP_CFG_2  0x71
-#define MPU6050_RA_XG_OFFS_TC 0x00
-#define MPU6050_TC_OTP_BNK_VLD_BIT 7
-
-#define MPU6050_RA_MOT_THR    0x1F
-#define MPU6050_RA_ZRMOT_THR  0x20
-#define MPU6050_RA_MOT_DUR    0x21
-#define MPU6050_RA_ZRMOT_DUR  0x22
-
-// Interrupt and FIFO registers
-#define MPU6050_RA_INT_STATUS 0x3A
-#define MPU6050_RA_FIFO_COUNTH 0x72
-#define MPU6050_RA_FIFO_R_W   0x74
-
-#ifndef MPU6050_DMP_FIFO_RATE_DIVISOR 
-#define MPU6050_DMP_FIFO_RATE_DIVISOR 0x01 // The New instance of the Firmware has this as the default
+#ifndef DMP_FIFO_RATE_DIVISOR 
+#define DMP_FIFO_RATE_DIVISOR 0x01 // The New instance of the Firmware has this as the default
 #endif
 
-#define MPU6050_DMP_MEMORY_CHUNK_SIZE 16   // same as in the Arduino library (16 bytes typical)
-#define MPU6050_RA_BANK_SEL         0x6D
-#define MPU6050_RA_MEM_START_ADDR   0x6E
-#define MPU6050_RA_MEM_R_W          0x6F
+#define DMP_MEMORY_CHUNK_SIZE 16
 
-#define MPU6050_RA_XG_OFFS_USRH   0x13
-#define MPU6050_RA_YG_OFFS_USRH   0x15
-#define MPU6050_RA_ZG_OFFS_USRH   0x17
-#define MPU6050_RA_ZA_OFFS_H      0x06
-
-#define MPU6050_INTERRUPT_FIFO_OFLOW_BIT 4
-#define MPU6050_INTERRUPT_DMP_INT_BIT        1 
+#define DLPF_BW_42       0x03  // DLPF setting for ~42 Hz bandwidth
+#define GYRO_FS_2000     0x03  // Gyro full-scale range = ±2000 °/s
+#define EXT_SYNC_TEMP_OUT_L 0x02
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-#define MPU6050_DMP_PACKET_SIZE  42
+#define MPU6050_DMP_CODE_SIZE 1929
+extern void mpu_isr_handler(void *arg);
 
-// DMP firmware binary - paste or include your dmpMemory array here or from file
 static const uint8_t dmpMemory[MPU6050_DMP_CODE_SIZE] = {
 	/* bank # 0 */
 	0xFB, 0x00, 0x00, 0x3E, 0x00, 0x0B, 0x00, 0x36, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00,
@@ -219,15 +209,6 @@ static const uint8_t dmpMemory[MPU6050_DMP_CODE_SIZE] = {
 
 esp_err_t mpu6050_init(void)
 {
-    if (mpu6050_set_clock_source(MPU6050_CLOCK_PLL_XGYRO) != ESP_OK) return ESP_FAIL;
-    if (mpu6050_set_gyro_range(MPU6050_GYRO_FS_250) != ESP_OK) return ESP_FAIL;
-    if (mpu6050_set_accel_range(MPU6050_ACCEL_FS_2) != ESP_OK) return ESP_FAIL;
-    if (mpu6050_set_sleep_enabled(false) != ESP_OK) return ESP_FAIL;
-    return ESP_OK;
-}
-
-esp_err_t mpu6050_dmp_initialize(void)
-{
     esp_err_t ret;
     ESP_LOGI(TAG, "Resetting MPU6050...");
     ret = mpu6050_reset();
@@ -237,35 +218,45 @@ esp_err_t mpu6050_dmp_initialize(void)
     ret = mpu6050_set_sleep_enabled(false);
     if (ret != ESP_OK) return ret;
 
-    ret = mpu6050_set_clock_source(0x03); // PLL Z Gyro
+    ret = mpu6050_set_clock_source(CLOCK_PLL_ZGYRO);
     if (ret != ESP_OK) return ret;
-    
-    ret = mpu6050_set_int_enabled((1 << MPU6050_INTERRUPT_FIFO_OFLOW_BIT) | (1 << MPU6050_INTERRUPT_DMP_INT_BIT));
+    ret = mpu6050_set_gyro_range(GYRO_FS_250);
+    if (ret != ESP_OK) return ret;
+    ret = mpu6050_set_accel_range(ACCEL_FS_2);
+    if (ret != ESP_OK) return ret;
+    return ESP_OK;
+}
+
+esp_err_t mpu6050_dmp_initialize(void)
+{
+    esp_err_t ret;
+
+    ret = mpu6050_set_FIFO_oflow_int_enabled(true);
     if (ret != ESP_OK) return ret;
 
-    // Set sample rate to 200 Hz (1kHz / (1 + 4) = 200Hz)
+    ret = mpu6050_set_DMP_int_enabled(true);
+    if (ret != ESP_OK) return ret;
+
+    ret = mpu6050_set_external_frame_sync(EXT_SYNC_TEMP_OUT_L);
+    if (ret != ESP_OK) return ret;
+
+    ret = mpu6050_set_dlpf_mode(DLPF_BW_42);
+    if (ret != ESP_OK) return ret;
+
+    // (1kHz / (1 + 4) = 200Hz)
     ret = mpu6050_set_sample_rate(4);
     if (ret != ESP_OK) return ret;
 
-    ret = mpu6050_set_external_frame_sync(0x02); // MPU6050_EXT_SYNC_TEMP_OUT_L defined as 0x02
+    ret = mpu6050_set_gyro_range(GYRO_FS_2000);
     if (ret != ESP_OK) return ret;
 
-    // Set DLPF bandwidth to 42 Hz
-    ret = mpu6050_set_dlpf_mode(3); // MPU6050_DLPF_BW_42 likely 3
-    if (ret != ESP_OK) return ret;
-
-    // Set gyro range to 2000 dps
-    ret = mpu6050_set_gyro_range(3); // MPU6050_GYRO_FS_2000 likely 3
-    if (ret != ESP_OK) return ret;
-
-    // Load DMP firmware to MPU memory banks
     ESP_LOGI(TAG, "Loading DMP firmware...");
     ret = mpu6050_write_prog_memory_block(dmpMemory, MPU6050_DMP_CODE_SIZE, 0, 0);
     if (ret != ESP_OK) return ret;
 
 
     ESP_LOGI(TAG, "Configuring DMP and motion detection...");
-    uint8_t dmp_update[] = {0x00, MPU6050_DMP_FIFO_RATE_DIVISOR};
+    uint8_t dmp_update[] = {0x00, DMP_FIFO_RATE_DIVISOR};
     mpu6050_write_prog_memory_block(dmp_update, 2, 0x02, 0x16);
 
     ret = mpu6050_set_dmp_config1(0x03);
@@ -274,161 +265,168 @@ esp_err_t mpu6050_dmp_initialize(void)
     ret = mpu6050_set_dmp_config2(0x00);
     if (ret != ESP_OK) return ret;
 
-    // Clear OTP bank valid flag (false)
     ret = mpu6050_set_otp_bank_valid(false);
     if (ret != ESP_OK) return ret;
 
-    // Set motion detection threshold to 2
     ret = mpu6050_set_motion_detection_threshold(2);
     if (ret != ESP_OK) return ret;
 
-    // Set zero motion detection threshold to 156
     ret = mpu6050_set_zero_motion_detection_threshold(156);
     if (ret != ESP_OK) return ret;
 
-    // Set motion detection duration to 80
     ret = mpu6050_set_motion_detection_duration(80);
     if (ret != ESP_OK) return ret;
 
-    // Set zero motion detection duration to 0
     ret = mpu6050_set_zero_motion_detection_duration(0);
     if (ret != ESP_OK) return ret;
 
     ret = mpu6050_set_fifo_enabled(true);
     if (ret != ESP_OK) return ret;
 
-    // Reset DMP
     ret = mpu6050_reset_dmp();
     if (ret != ESP_OK) return ret;
 
-    // Disable DMP (to be enabled later)
     ret = mpu6050_set_dmp_enabled(false);
     if (ret != ESP_OK) return ret;
 
-    // Reset FIFO and clear interrupts
     ret = mpu6050_reset_fifo();
     if (ret != ESP_OK) return ret;
 
     ESP_LOGI(TAG, "Reading INT STATUS");
     uint8_t int_status;
-    mpu6050_read_byte(MPU6050_INT_STATUS_REG, &int_status);
+    mpu6050_get_int_status(&int_status);
     ESP_LOGI(TAG, "INT STATUS: 0x%02X", int_status);
 
-    return ESP_OK; // return 0 on success
+    return ESP_OK;
 }
 
-// Disable sleep mode
+esp_err_t mpu6050_get_who_am_i(uint8_t *who_am_i)
+{
+    return mpu6050_read_byte(WHO_AM_I_REG, who_am_i);
+}
+
 esp_err_t mpu6050_set_sleep_enabled(bool enabled)
 {
-    return mpu6050_write_bit(MPU6050_PWR_MGMT_1, MPU6050_WAKE_BIT, enabled);
+    return mpu6050_write_bit(PWR_MGMT_1_REG, 6, enabled);
 }
 
-// Set clock source (Z gyro PLL)
 esp_err_t mpu6050_set_clock_source(uint8_t source)
 {
-    return mpu6050_write_bits(MPU6050_PWR_MGMT_1, MPU6050_CLOCK_SEL_BIT, MPU6050_CLOCK_SEL_LENGTH, source);
+    return mpu6050_write_bits(PWR_MGMT_1_REG, 2, 3, source);
 }
 
-// Enable interrupts for DMP and FIFO overflow
-esp_err_t mpu6050_set_int_enabled(uint8_t enabled)
+esp_err_t mpu6050_set_FIFO_oflow_int_enabled(bool enabled)
 {
-    return mpu6050_write_byte(0x38, enabled);
+    return mpu6050_write_bit(MPU6050_INT_ENABLE_REG,4, enabled);
 }
 
-// Set sample rate divider
+esp_err_t mpu6050_set_DMP_int_enabled(bool enabled)
+{
+    return mpu6050_write_bit(MPU6050_INT_ENABLE_REG,1, enabled);
+}
+
 esp_err_t mpu6050_set_sample_rate(uint8_t rate)
 {
-    return mpu6050_write_byte(0x19, rate);
+    return mpu6050_write_byte(SMPLRT_DIV_REG, rate);
 }
 
-// Set external frame sync
 esp_err_t mpu6050_set_external_frame_sync(uint8_t sync)
 {
-    return mpu6050_write_bits(0x1A, 5, 3, sync);
+    return mpu6050_write_bits(CONFIG_REG, 5, 3, sync);
 }
 
-// Set DLPF bandwidth
 esp_err_t mpu6050_set_dlpf_mode(uint8_t mode)
 {
-    return mpu6050_write_bits(0x1A, 2, 3, mode);
+    return mpu6050_write_bits(CONFIG_REG, 2, 3, mode);
 }
 
-// Set gyro full scale range
 esp_err_t mpu6050_set_gyro_range(uint8_t range)
 {
-    return mpu6050_write_bits(0x1B, 4, 2, range);
+    return mpu6050_write_bits(GYRO_CONFIG_REG, 4, 2, range);
 }
 
 esp_err_t mpu6050_set_accel_range(uint8_t range)
 {
 
-    // return mpu6050_write_bits(MPU6050_ACCEL_CONFIG, MPU6050_ACONFIG_AFS_SEL_BIT, MPU6050_ACONFIG_AFS_SEL_LENGTH, range);
-    return mpu6050_write_bits(0x1C, 4, 2, range);
+    return mpu6050_write_bits(ACCEL_CONFIG_REG, 4, 2, range);
 }
 
-// Enable FIFO
 esp_err_t mpu6050_set_fifo_enabled(bool enabled)
 {
-    return mpu6050_write_bit(MPU6050_USER_CTRL_REG, 6, enabled);
+    return mpu6050_write_bit(USER_CTRL_REG, 6, enabled);
 }
 
 esp_err_t mpu6050_reset()
 {
-    return mpu6050_write_bit(0x6B, 7, true); // PWR_MGMT_1 device reset bit
+    return mpu6050_write_bit(PWR_MGMT_1_REG, 7, true);
 }
 
-// Reset FIFO buffer
 esp_err_t mpu6050_reset_fifo()
 {
-    return mpu6050_write_bit(MPU6050_USER_CTRL_REG, 2, true);
+    return mpu6050_write_bit(USER_CTRL_REG, 2, true);
 }
 
-// Reset DMP
 esp_err_t mpu6050_reset_dmp()
 {
-    return mpu6050_write_bit(MPU6050_USER_CTRL_REG, 3, true);
+    return mpu6050_write_bit(USER_CTRL_REG, 3, true);
 }
 
 esp_err_t mpu6050_set_dmp_enabled(bool enabled)
 {
-    return mpu6050_write_bit(MPU6050_USER_CTRL_REG, MPU6050_USERCTRL_DMP_EN_BIT, enabled);
+    return mpu6050_write_bit(USER_CTRL_REG, 7, enabled);
 }
 
-// Set DMP configuration byte 1
 esp_err_t mpu6050_set_dmp_config1(uint8_t config) {
-    return mpu6050_write_byte(MPU6050_RA_DMP_CFG_1, config);
+    return mpu6050_write_byte(DMP_CFG_1_REG, config);
 }
 
-// Set DMP configuration byte 2
 esp_err_t mpu6050_set_dmp_config2(uint8_t config) {
-    return mpu6050_write_byte(MPU6050_RA_DMP_CFG_2, config);
+    return mpu6050_write_byte(DMP_CFG_2_REG, config);
 }
 
-// Set OTP bank valid bit
 esp_err_t mpu6050_set_otp_bank_valid(bool enabled) {
-    return mpu6050_write_bit(MPU6050_RA_XG_OFFS_TC, MPU6050_TC_OTP_BNK_VLD_BIT, enabled);
+    return mpu6050_write_bit(XG_OFFS_TC_REG, 7, enabled);
 }
 
 esp_err_t mpu6050_set_motion_detection_threshold(uint8_t threshold) {
-    return mpu6050_write_byte(MPU6050_RA_MOT_THR, threshold);
+    return mpu6050_write_byte(MOT_THR_REG, threshold);
 }
 
 esp_err_t mpu6050_set_zero_motion_detection_threshold(uint8_t threshold) {
-    return mpu6050_write_byte(MPU6050_RA_ZRMOT_THR, threshold);
+    return mpu6050_write_byte(ZRMOT_THR_REG, threshold);
 }
 
 esp_err_t mpu6050_set_motion_detection_duration(uint8_t duration) {
-    return mpu6050_write_byte(MPU6050_RA_MOT_DUR, duration);
+    return mpu6050_write_byte(MOT_DUR_REG, duration);
 }
 
 esp_err_t mpu6050_set_zero_motion_detection_duration(uint8_t duration) {
-    return mpu6050_write_byte(MPU6050_RA_ZRMOT_DUR, duration);
+    return mpu6050_write_byte(ZRMOT_DUR_REG, duration);
 }
 
-// esp_err_t mpu6050_get_int_status(uint8_t *status)
-// {
-//     return mpu6050_read_byte(MPU6050_INT_STATUS_REG, status);
-// }
+esp_err_t mpu6050_interrupt_init()
+{
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_POSEDGE,
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = (1ULL << MPU_INT),
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE
+    };
+    esp_err_t ret = gpio_config(&io_conf);
+    if (ret != ESP_OK) return ret;
+
+    ret = gpio_install_isr_service(0);
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) return ret; 
+    
+    ret = gpio_isr_handler_add(MPU_INT, mpu_isr_handler, NULL);
+    return ret;
+}
+
+esp_err_t mpu6050_get_int_status(uint8_t *status)
+{
+    return mpu6050_read_byte(INT_STATUS_REG, status);
+}
 
 uint16_t mpu6050_get_fifo_packet_size(void)
 {
@@ -438,7 +436,7 @@ uint16_t mpu6050_get_fifo_packet_size(void)
 esp_err_t mpu6050_get_fifo_count(uint16_t *count)
 {
     uint8_t buff[2];
-    esp_err_t ret = mpu6050_read_bytes(MPU6050_FIFO_COUNT_REG, buff, 2);
+    esp_err_t ret = mpu6050_read_bytes(FIFO_COUNT_REG, buff, 2);
     if (ret == ESP_OK) {
         *count = (buff[0] << 8) | buff[1];
     }
@@ -447,7 +445,7 @@ esp_err_t mpu6050_get_fifo_count(uint16_t *count)
 
 esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len)
 {
-    esp_err_t ret = mpu6050_read_bytes(MPU6050_FIFO_R_W_REG, buf, len);
+    esp_err_t ret = mpu6050_read_bytes(FIFO_R_W_REG, buf, len);
     if (ret == ESP_OK) {
         ESP_LOGD(TAG, "mpu6050_read_fifo success, len=%u", len);
     } else {
@@ -458,17 +456,17 @@ esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len)
 
 esp_err_t mpu6050_set_x_gyro_offset(int16_t offset)
 {
-    return mpu6050_write_word(MPU6050_RA_XG_OFFS_USRH, offset);
+    return mpu6050_write_word(XG_OFFS_USRH_REG, offset);
 }
 
 esp_err_t mpu6050_set_y_gyro_offset(int16_t offset)
 {
-    return mpu6050_write_word(MPU6050_RA_YG_OFFS_USRH, offset);
+    return mpu6050_write_word(YG_OFFS_USRH_REG, offset);
 }
 
 esp_err_t mpu6050_set_z_gyro_offset(int16_t offset)
 {
-    return mpu6050_write_word(MPU6050_RA_ZG_OFFS_USRH, offset);
+    return mpu6050_write_word(ZG_OFFS_USRH_REG, offset);
 }
 
 
@@ -478,15 +476,14 @@ esp_err_t mpu6050_set_z_accel_offset(int16_t offset)
     esp_err_t ret = mpu6050_read_byte(0x75, &dev_id);
     if (ret != ESP_OK) return ret;
 
-    // MPU6050/9150 use 0x06; MPU6500/9250 use 0x7D
-    uint8_t save_addr = (dev_id < 0x38) ? MPU6050_RA_ZA_OFFS_H : 0x7D;
+    uint8_t save_addr = (dev_id < 0x38) ? ZA_OFFS_H_REG : 0x7D;
 
     return mpu6050_write_word(save_addr, offset);
 }
 
 esp_err_t getFIFOBytes(uint8_t *data, uint8_t length) {
     if(length > 0){
-        esp_err_t ret = mpu6050_read_bytes(MPU6050_RA_FIFO_R_W, data, length);
+        esp_err_t ret = mpu6050_read_bytes(FIFO_R_W_REG, data, length);
         if (ret == ESP_OK) {
             ESP_LOGD(TAG, "getFIFOBytes read %u bytes", length);
         } else {
@@ -499,7 +496,7 @@ esp_err_t getFIFOBytes(uint8_t *data, uint8_t length) {
 
 esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
 {
-    esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, ACC_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, MPU6050_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     
     if (ret == ESP_ERR_TIMEOUT) {
         // ESP_LOGI(TAG, "I2C read timeout, attempting bus recovery");
@@ -521,7 +518,7 @@ esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t *data, size_t le
     uint8_t write_buf[len + 1];
     write_buf[0] = reg_addr;
     memcpy(&write_buf[1], data, len);
-    esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, ACC_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, MPU6050_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     
     if (ret == ESP_ERR_TIMEOUT) {
         // ESP_LOGI(TAG, "I2C write timeout");
@@ -538,7 +535,6 @@ esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t *data, size_t le
     return ret;
 }
 
-// Write a single bit in a register at bit_num (0-7)
 esp_err_t mpu6050_write_bit(uint8_t reg, uint8_t bit_num, bool value)
 {
     uint8_t byte;
@@ -553,7 +549,6 @@ esp_err_t mpu6050_write_bit(uint8_t reg, uint8_t bit_num, bool value)
     return mpu6050_register_write_byte(reg, &byte, 1);
 }
 
-// Write multiple bits (bit_start is highest bit, length is count)
 esp_err_t mpu6050_write_bits(uint8_t reg, uint8_t bit_start, uint8_t length, uint8_t data)
 {
     uint8_t byte;
@@ -561,33 +556,29 @@ esp_err_t mpu6050_write_bits(uint8_t reg, uint8_t bit_start, uint8_t length, uin
     if (ret != ESP_OK) return ret;
 
     uint8_t mask = ((1 << length) - 1) << (bit_start - length + 1);
-    data <<= (bit_start - length + 1);   // shift data into correct bit position
-    data &= mask;                        // zero all non-important bits in data
-    byte &= ~mask;                      // zero all bits to be replaced in existing byte
-    byte |= data;                       // combine
+    data <<= (bit_start - length + 1);
+    data &= mask;
+    byte &= ~mask;
+    byte |= data;
 
     return mpu6050_register_write_byte(reg, &byte, 1);
 }
 
-// Write a full byte to a register
 esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data)
 {
     return mpu6050_register_write_byte(reg, &data, 1);
 }
 
-// Write multiple bytes to a register
 esp_err_t mpu6050_write_bytes(uint8_t reg, const uint8_t *data, size_t len)
 {
     return mpu6050_register_write_byte(reg, data, len);
 }
 
-// Read a single byte from a register
 esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t* data)
 {
     return mpu6050_register_read(reg, data, 1);
 }
 
-// Read multiple bytes from a register
 esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *buffer, size_t len)
 {
     return mpu6050_register_read(reg, buffer, len);
@@ -619,12 +610,12 @@ static esp_err_t mpu6050_set_memory_bank(uint8_t bank, bool prefetch_enabled, bo
     bank &= 0x1F;
     if (user_bank) bank |= 0x20;
     if (prefetch_enabled) bank |= 0x40;
-    return mpu6050_write_byte(MPU6050_RA_BANK_SEL, bank);
+    return mpu6050_write_byte(BANK_SEL_REG, bank);
 }
 
 static esp_err_t mpu6050_set_memory_start_address(uint8_t address)
 {
-    return mpu6050_write_byte(MPU6050_RA_MEM_START_ADDR, address);
+    return mpu6050_write_byte(MEM_START_ADDR_REG, address);
 }
 
 /**
@@ -642,7 +633,6 @@ esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_siz
     uint8_t chunk_size;
     uint16_t i = 0;
 
-    // set initial bank and address
     ret = mpu6050_set_memory_bank(bank, false, false);
     if (ret != ESP_OK) return ret;
     ret = mpu6050_set_memory_start_address(address);
@@ -650,29 +640,23 @@ esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_siz
 
     while (i < data_size)
     {
-        // default chunk size
-        chunk_size = MPU6050_DMP_MEMORY_CHUNK_SIZE;
+        chunk_size = DMP_MEMORY_CHUNK_SIZE;
 
-        // adjust chunk if near data end
         if (i + chunk_size > data_size)
             chunk_size = data_size - i;
 
-        // ensure we don't cross bank boundary (each bank is 256 bytes)
         if (chunk_size > (256 - address))
             chunk_size = 256 - address;
 
-        // write this chunk
-        ret = mpu6050_write_bytes(MPU6050_RA_MEM_R_W, &data[i], chunk_size);
+        ret = mpu6050_write_bytes(MEM_R_W_REG, &data[i], chunk_size);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed writing memory chunk (bank %u, address %u, size %u)", bank, address, chunk_size);
             return ret;
         }
 
-        // advance pointers
         i += chunk_size;
         address += chunk_size;
 
-        // automatically wrap and move to next bank
         if (i < data_size) {
             if (address == 0) bank++;
             ret = mpu6050_set_memory_bank(bank, false, false);
@@ -685,37 +669,28 @@ esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_siz
     return ESP_OK;
 }
 
-// whole this function instead of three getQuaternion, getGravity, getYawPitchRoll
 int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFloat *gravity, float ypr[3]) {
     if (!fifoBuffer || !q || !gravity || !ypr) return -1;
 
-    // Extract quaternion data (16-bit signed) from FIFO packet (default layout)
     int16_t qI[4];
     qI[0] = (int16_t)((fifoBuffer[0] << 8) | fifoBuffer[1]);
     qI[1] = (int16_t)((fifoBuffer[4] << 8) | fifoBuffer[5]);
     qI[2] = (int16_t)((fifoBuffer[8] << 8) | fifoBuffer[9]);
     qI[3] = (int16_t)((fifoBuffer[12] << 8) | fifoBuffer[13]);
 
-    // Convert to float quaternion values normalized by 16384.0f
     q->w = (float)qI[0] / pow(2, 14);
     q->x = (float)qI[1] / pow(2, 14);
     q->y = (float)qI[2] / pow(2, 14);
     q->z = (float)qI[3] / pow(2, 14);
 
-    // Calculate gravity vector from quaternion
     gravity->x = 2.0f * (q->x * q->z - q->w * q->y);
     gravity->y = 2.0f * (q->w * q->x + q->y * q->z);
     gravity->z = q->w * q->w - q->x * q->x - q->y * q->y + q->z * q->z;
 
-    // Calculate yaw, pitch, roll from quaternion and gravity
-    // yaw: rotation about Z axis
     ypr[0] = atan2f(2.0f * (q->x * q->y - q->w * q->z), 2.0f * (q->w * q->w + q->x * q->x) - 1.0f);
-    // pitch: rotation about Y axis (nose up/down)
     ypr[1] = atan2f(gravity->x, sqrtf(gravity->y * gravity->y + gravity->z * gravity->z));
-    // roll: rotation about X axis (tilt left/right)
     ypr[2] = atan2f(gravity->y, gravity->z);
 
-    // Adjust pitch according to gravity z component sign
     if (gravity->z < 0) {
         if (ypr[1] > 0) {
             ypr[1] = M_PI - ypr[1];
@@ -724,6 +699,5 @@ int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFl
         }
     }
 
-    // Return 0 for success
     return 0;
 }

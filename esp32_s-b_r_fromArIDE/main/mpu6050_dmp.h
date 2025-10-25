@@ -17,9 +17,11 @@ typedef struct {
 // Initialization and configuration
 esp_err_t mpu6050_init(void);
 esp_err_t mpu6050_dmp_initialize(void);
+esp_err_t mpu6050_get_who_am_i(uint8_t *who_am_i);
 esp_err_t mpu6050_set_sleep_enabled(bool enabled);
 esp_err_t mpu6050_set_clock_source(uint8_t source);
-esp_err_t mpu6050_set_int_enabled(uint8_t enabled);
+esp_err_t mpu6050_set_FIFO_oflow_int_enabled(bool enabled);
+esp_err_t mpu6050_set_DMP_int_enabled(bool enabled);
 esp_err_t mpu6050_set_sample_rate(uint8_t rate);
 esp_err_t mpu6050_set_external_frame_sync(uint8_t sync);
 esp_err_t mpu6050_set_dlpf_mode(uint8_t mode);
@@ -60,8 +62,8 @@ esp_err_t mpu6050_set_z_accel_offset(int16_t offset);
 
 
 // Interrupt and FIFO handling
-// esp_err_t mpu6050_interrupt_init(void);
-// esp_err_t mpu6050_get_int_status(uint8_t *status);
+esp_err_t mpu6050_interrupt_init(void);
+esp_err_t mpu6050_get_int_status(uint8_t *status);
 esp_err_t mpu6050_get_fifo_count(uint16_t *count);
 esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len);
 uint16_t mpu6050_get_fifo_packet_size(void);
