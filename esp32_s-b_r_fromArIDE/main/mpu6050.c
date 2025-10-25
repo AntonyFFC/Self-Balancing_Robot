@@ -1,4 +1,4 @@
-#include "mpu6050_dmp.h"
+#include "mpu6050.h"
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "driver/gpio.h"
+#include "i2c_com.h"
 
 #define TAG "MPU_DMP"
 #define MPU_INT 4
@@ -41,17 +42,6 @@
 #define FIFO_COUNT_REG           0x72
 #define FIFO_R_W_REG             0x74
 #define WHO_AM_I_REG             0x75
-
-#define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
-#define I2C_MASTER_SDA_IO           21      /*!< GPIO number used for I2C master data  */
-#define I2C_MASTER_NUM              0                          /*!< I2C master i2c port number, the number of i2c peripheral interfaces available will depend on the chip */
-#define I2C_MASTER_TIMEOUT_MS       100
-#define I2C_MASTER_FREQ_HZ          400000   
-#define I2C_MASTER_TX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */ 
-
-// #define MPU6050_I2C_ADDR (0b1101000 << 1)
-#define MPU6050_I2C_ADDR 0x68          /*!< I2C address of MPU6050 accelerometer/gyroscope NOT SHIFTED, only 7 bit*/
 
 #define CLOCK_PLL_ZGYRO         0x03
 #define GYRO_FS_250         0x00
@@ -302,106 +292,106 @@ esp_err_t mpu6050_dmp_initialize(void)
 
 esp_err_t mpu6050_get_who_am_i(uint8_t *who_am_i)
 {
-    return mpu6050_read_byte(WHO_AM_I_REG, who_am_i);
+    return i2c_com_read_register(WHO_AM_I_REG, who_am_i);
 }
 
 esp_err_t mpu6050_set_sleep_enabled(bool enabled)
 {
-    return mpu6050_write_bit(PWR_MGMT_1_REG, 6, enabled);
+    return i2c_com_write_bit(PWR_MGMT_1_REG, 6, enabled);
 }
 
 esp_err_t mpu6050_set_clock_source(uint8_t source)
 {
-    return mpu6050_write_bits(PWR_MGMT_1_REG, 2, 3, source);
+    return i2c_com_write_bits(PWR_MGMT_1_REG, 2, 3, source);
 }
 
 esp_err_t mpu6050_set_FIFO_oflow_int_enabled(bool enabled)
 {
-    return mpu6050_write_bit(MPU6050_INT_ENABLE_REG,4, enabled);
+    return i2c_com_write_bit(MPU6050_INT_ENABLE_REG,4, enabled);
 }
 
 esp_err_t mpu6050_set_DMP_int_enabled(bool enabled)
 {
-    return mpu6050_write_bit(MPU6050_INT_ENABLE_REG,1, enabled);
+    return i2c_com_write_bit(MPU6050_INT_ENABLE_REG,1, enabled);
 }
 
 esp_err_t mpu6050_set_sample_rate(uint8_t rate)
 {
-    return mpu6050_write_byte(SMPLRT_DIV_REG, rate);
+    return i2c_com_write_register(SMPLRT_DIV_REG, rate);
 }
 
 esp_err_t mpu6050_set_external_frame_sync(uint8_t sync)
 {
-    return mpu6050_write_bits(CONFIG_REG, 5, 3, sync);
+    return i2c_com_write_bits(CONFIG_REG, 5, 3, sync);
 }
 
 esp_err_t mpu6050_set_dlpf_mode(uint8_t mode)
 {
-    return mpu6050_write_bits(CONFIG_REG, 2, 3, mode);
+    return i2c_com_write_bits(CONFIG_REG, 2, 3, mode);
 }
 
 esp_err_t mpu6050_set_gyro_range(uint8_t range)
 {
-    return mpu6050_write_bits(GYRO_CONFIG_REG, 4, 2, range);
+    return i2c_com_write_bits(GYRO_CONFIG_REG, 4, 2, range);
 }
 
 esp_err_t mpu6050_set_accel_range(uint8_t range)
 {
 
-    return mpu6050_write_bits(ACCEL_CONFIG_REG, 4, 2, range);
+    return i2c_com_write_bits(ACCEL_CONFIG_REG, 4, 2, range);
 }
 
 esp_err_t mpu6050_set_fifo_enabled(bool enabled)
 {
-    return mpu6050_write_bit(USER_CTRL_REG, 6, enabled);
+    return i2c_com_write_bit(USER_CTRL_REG, 6, enabled);
 }
 
 esp_err_t mpu6050_reset()
 {
-    return mpu6050_write_bit(PWR_MGMT_1_REG, 7, true);
+    return i2c_com_write_bit(PWR_MGMT_1_REG, 7, true);
 }
 
 esp_err_t mpu6050_reset_fifo()
 {
-    return mpu6050_write_bit(USER_CTRL_REG, 2, true);
+    return i2c_com_write_bit(USER_CTRL_REG, 2, true);
 }
 
 esp_err_t mpu6050_reset_dmp()
 {
-    return mpu6050_write_bit(USER_CTRL_REG, 3, true);
+    return i2c_com_write_bit(USER_CTRL_REG, 3, true);
 }
 
 esp_err_t mpu6050_set_dmp_enabled(bool enabled)
 {
-    return mpu6050_write_bit(USER_CTRL_REG, 7, enabled);
+    return i2c_com_write_bit(USER_CTRL_REG, 7, enabled);
 }
 
 esp_err_t mpu6050_set_dmp_config1(uint8_t config) {
-    return mpu6050_write_byte(DMP_CFG_1_REG, config);
+    return i2c_com_write_register(DMP_CFG_1_REG, config);
 }
 
 esp_err_t mpu6050_set_dmp_config2(uint8_t config) {
-    return mpu6050_write_byte(DMP_CFG_2_REG, config);
+    return i2c_com_write_register(DMP_CFG_2_REG, config);
 }
 
 esp_err_t mpu6050_set_otp_bank_valid(bool enabled) {
-    return mpu6050_write_bit(XG_OFFS_TC_REG, 7, enabled);
+    return i2c_com_write_bit(XG_OFFS_TC_REG, 7, enabled);
 }
 
 esp_err_t mpu6050_set_motion_detection_threshold(uint8_t threshold) {
-    return mpu6050_write_byte(MOT_THR_REG, threshold);
+    return i2c_com_write_register(MOT_THR_REG, threshold);
 }
 
 esp_err_t mpu6050_set_zero_motion_detection_threshold(uint8_t threshold) {
-    return mpu6050_write_byte(ZRMOT_THR_REG, threshold);
+    return i2c_com_write_register(ZRMOT_THR_REG, threshold);
 }
 
 esp_err_t mpu6050_set_motion_detection_duration(uint8_t duration) {
-    return mpu6050_write_byte(MOT_DUR_REG, duration);
+    return i2c_com_write_register(MOT_DUR_REG, duration);
 }
 
 esp_err_t mpu6050_set_zero_motion_detection_duration(uint8_t duration) {
-    return mpu6050_write_byte(ZRMOT_DUR_REG, duration);
+    return i2c_com_write_register(ZRMOT_DUR_REG, duration);
 }
 
 esp_err_t mpu6050_interrupt_init()
@@ -425,7 +415,7 @@ esp_err_t mpu6050_interrupt_init()
 
 esp_err_t mpu6050_get_int_status(uint8_t *status)
 {
-    return mpu6050_read_byte(INT_STATUS_REG, status);
+    return i2c_com_read_register(INT_STATUS_REG, status);
 }
 
 uint16_t mpu6050_get_fifo_packet_size(void)
@@ -436,7 +426,7 @@ uint16_t mpu6050_get_fifo_packet_size(void)
 esp_err_t mpu6050_get_fifo_count(uint16_t *count)
 {
     uint8_t buff[2];
-    esp_err_t ret = mpu6050_read_bytes(FIFO_COUNT_REG, buff, 2);
+    esp_err_t ret = i2c_com_read_bytes(FIFO_COUNT_REG, buff, 2);
     if (ret == ESP_OK) {
         *count = (buff[0] << 8) | buff[1];
     }
@@ -445,7 +435,7 @@ esp_err_t mpu6050_get_fifo_count(uint16_t *count)
 
 esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len)
 {
-    esp_err_t ret = mpu6050_read_bytes(FIFO_R_W_REG, buf, len);
+    esp_err_t ret = i2c_com_read_bytes(FIFO_R_W_REG, buf, len);
     if (ret == ESP_OK) {
         ESP_LOGD(TAG, "mpu6050_read_fifo success, len=%u", len);
     } else {
@@ -456,34 +446,34 @@ esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len)
 
 esp_err_t mpu6050_set_x_gyro_offset(int16_t offset)
 {
-    return mpu6050_write_word(XG_OFFS_USRH_REG, offset);
+    return i2c_com_write_word(XG_OFFS_USRH_REG, offset);
 }
 
 esp_err_t mpu6050_set_y_gyro_offset(int16_t offset)
 {
-    return mpu6050_write_word(YG_OFFS_USRH_REG, offset);
+    return i2c_com_write_word(YG_OFFS_USRH_REG, offset);
 }
 
 esp_err_t mpu6050_set_z_gyro_offset(int16_t offset)
 {
-    return mpu6050_write_word(ZG_OFFS_USRH_REG, offset);
+    return i2c_com_write_word(ZG_OFFS_USRH_REG, offset);
 }
 
 
 esp_err_t mpu6050_set_z_accel_offset(int16_t offset)
 {
     uint8_t dev_id;
-    esp_err_t ret = mpu6050_read_byte(0x75, &dev_id);
+    esp_err_t ret = i2c_com_read_register(0x75, &dev_id);
     if (ret != ESP_OK) return ret;
 
     uint8_t save_addr = (dev_id < 0x38) ? ZA_OFFS_H_REG : 0x7D;
 
-    return mpu6050_write_word(save_addr, offset);
+    return i2c_com_write_word(save_addr, offset);
 }
 
 esp_err_t getFIFOBytes(uint8_t *data, uint8_t length) {
     if(length > 0){
-        esp_err_t ret = mpu6050_read_bytes(FIFO_R_W_REG, data, length);
+        esp_err_t ret = i2c_com_read_bytes(FIFO_R_W_REG, data, length);
         if (ret == ESP_OK) {
             ESP_LOGD(TAG, "getFIFOBytes read %u bytes", length);
         } else {
@@ -494,128 +484,17 @@ esp_err_t getFIFOBytes(uint8_t *data, uint8_t length) {
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len)
-{
-    esp_err_t ret = i2c_master_write_read_device(I2C_MASTER_NUM, MPU6050_I2C_ADDR, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
-    
-    if (ret == ESP_ERR_TIMEOUT) {
-        // ESP_LOGI(TAG, "I2C read timeout, attempting bus recovery");
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("READ_TIMEOUT", ret);
-        #endif
-        vTaskDelay(pdMS_TO_TICKS(2));
-    } else if (ret != ESP_OK) {
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("READ_ERROR", ret);
-        #endif
-    }
-    
-    return ret;
-}
-
-esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t *data, size_t len)
-{
-    uint8_t write_buf[len + 1];
-    write_buf[0] = reg_addr;
-    memcpy(&write_buf[1], data, len);
-    esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM, MPU6050_I2C_ADDR, write_buf, sizeof(write_buf), I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
-    
-    if (ret == ESP_ERR_TIMEOUT) {
-        // ESP_LOGI(TAG, "I2C write timeout");
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("WRITE_TIMEOUT", ret);
-        #endif
-        vTaskDelay(pdMS_TO_TICKS(2));
-    } else if (ret != ESP_OK) {
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("WRITE_ERROR", ret);
-        #endif
-    }
-    
-    return ret;
-}
-
-esp_err_t mpu6050_write_bit(uint8_t reg, uint8_t bit_num, bool value)
-{
-    uint8_t byte;
-    esp_err_t ret = mpu6050_register_read(reg, &byte, 1);
-    if (ret != ESP_OK) return ret;
-
-    if (value)
-        byte |= (1 << bit_num);
-    else
-        byte &= ~(1 << bit_num);
-
-    return mpu6050_register_write_byte(reg, &byte, 1);
-}
-
-esp_err_t mpu6050_write_bits(uint8_t reg, uint8_t bit_start, uint8_t length, uint8_t data)
-{
-    uint8_t byte;
-    esp_err_t ret = mpu6050_register_read(reg, &byte, 1);
-    if (ret != ESP_OK) return ret;
-
-    uint8_t mask = ((1 << length) - 1) << (bit_start - length + 1);
-    data <<= (bit_start - length + 1);
-    data &= mask;
-    byte &= ~mask;
-    byte |= data;
-
-    return mpu6050_register_write_byte(reg, &byte, 1);
-}
-
-esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data)
-{
-    return mpu6050_register_write_byte(reg, &data, 1);
-}
-
-esp_err_t mpu6050_write_bytes(uint8_t reg, const uint8_t *data, size_t len)
-{
-    return mpu6050_register_write_byte(reg, data, len);
-}
-
-esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t* data)
-{
-    return mpu6050_register_read(reg, data, 1);
-}
-
-esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *buffer, size_t len)
-{
-    return mpu6050_register_read(reg, buffer, len);
-}
-
-static esp_err_t mpu6050_write_word(uint8_t reg_high, int16_t value)
-{
-    esp_err_t ret;
-    uint8_t high = (uint8_t)((value >> 8) & 0xFF);
-    uint8_t low  = (uint8_t)(value & 0xFF);
-
-    ret = mpu6050_write_byte(reg_high, high);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to write high byte at 0x%02X", reg_high);
-        return ret;
-    }
-
-    ret = mpu6050_write_byte(reg_high + 1, low);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to write low byte at 0x%02X", reg_high + 1);
-        return ret;
-    }
-
-    return ESP_OK;
-}
-
 static esp_err_t mpu6050_set_memory_bank(uint8_t bank, bool prefetch_enabled, bool user_bank)
 {
     bank &= 0x1F;
     if (user_bank) bank |= 0x20;
     if (prefetch_enabled) bank |= 0x40;
-    return mpu6050_write_byte(BANK_SEL_REG, bank);
+    return i2c_com_write_register(BANK_SEL_REG, bank);
 }
 
 static esp_err_t mpu6050_set_memory_start_address(uint8_t address)
 {
-    return mpu6050_write_byte(MEM_START_ADDR_REG, address);
+    return i2c_com_write_register(MEM_START_ADDR_REG, address);
 }
 
 /**
@@ -648,7 +527,7 @@ esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_siz
         if (chunk_size > (256 - address))
             chunk_size = 256 - address;
 
-        ret = mpu6050_write_bytes(MEM_R_W_REG, &data[i], chunk_size);
+        ret = i2c_com_write_bytes(MEM_R_W_REG, &data[i], chunk_size);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed writing memory chunk (bank %u, address %u, size %u)", bank, address, chunk_size);
             return ret;

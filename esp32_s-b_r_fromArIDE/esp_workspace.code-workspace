@@ -32,7 +32,9 @@
 			"vector": "c",
 			"iterator": "c",
 			"string_view": "c",
-			"thread": "c"
+			"thread": "c",
+			"stdbool.h": "c",
+			"esp_err.h": "c"
 		}
 	}
 }

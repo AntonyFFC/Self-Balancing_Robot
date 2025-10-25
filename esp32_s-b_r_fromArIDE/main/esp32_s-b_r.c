@@ -14,7 +14,8 @@
 #include "lwip/netdb.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
-#include "mpu6050_dmp.h"
+#include "mpu6050.h"
+#include "i2c_com.h"
 
 #define PYTHON_PLOTTER_DEBUG           CONFIG_PYTHON_PLOTTER_DEBUG
 
@@ -352,7 +353,7 @@ void read3dData(float* x, float* y, float* z, float rangeFactor, uint8_t startRe
     const int max_retries = 3;
 
     do {
-        ret = mpu6050_register_read(startReg, i2c_receive8bit_buf, bytes_to_receive);
+        ret = i2c_com_read_byte(startReg, i2c_receive8bit_buf, bytes_to_receive);
         if (ret == ESP_OK) {
             break;
         }

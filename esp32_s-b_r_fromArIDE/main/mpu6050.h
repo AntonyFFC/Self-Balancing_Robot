@@ -1,5 +1,5 @@
-#ifndef MPU6050_DMP_H
-#define MPU6050_DMP_H
+#ifndef MPU6050_H
+#define MPU6050_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -42,16 +42,6 @@ esp_err_t mpu6050_set_zero_motion_detection_threshold(uint8_t threshold);
 esp_err_t mpu6050_set_motion_detection_duration(uint8_t duration);
 esp_err_t mpu6050_set_zero_motion_detection_duration(uint8_t duration);
 
-// I2C low-level access helpers
-esp_err_t mpu6050_register_read(uint8_t reg_addr, uint8_t *data, size_t len);
-esp_err_t mpu6050_register_write_byte(uint8_t reg_addr, uint8_t *data, size_t len);
-esp_err_t mpu6050_write_bit(uint8_t reg, uint8_t bit_num, bool value);
-esp_err_t mpu6050_write_bits(uint8_t reg, uint8_t bit_start, uint8_t length, uint8_t data);
-esp_err_t mpu6050_write_byte(uint8_t reg, uint8_t data);
-esp_err_t mpu6050_write_bytes(uint8_t reg, const uint8_t *data, size_t len);
-esp_err_t mpu6050_read_byte(uint8_t reg, uint8_t *data);
-esp_err_t mpu6050_read_bytes(uint8_t reg, uint8_t *buffer, size_t len);
-static esp_err_t mpu6050_write_word(uint8_t reg_high, int16_t value);
 esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address);
 
 // gyro offset setters
