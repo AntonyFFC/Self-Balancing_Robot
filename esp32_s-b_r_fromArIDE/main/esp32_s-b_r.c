@@ -11,6 +11,7 @@
 #include "driver/gpio.h"
 #include "wifi.h"
 #include "lwip/sockets.h"
+#include <fcntl.h>
 #include "lwip/netdb.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
@@ -46,7 +47,7 @@ bool dmpReady = false;
 #define DESTINATION_PORT 7777
 #define LISTEN_PORT 7778
 #define UDP_MSG_MAX_LEN 128
-#define UDP_SENDER_TASK_PERIOD_MS 200
+#define UDP_SENDER_TASK_PERIOD_MS 300
 
 int udp_sock;
 struct sockaddr_in dest_addr;
@@ -86,6 +87,16 @@ esp_err_t my_udp_init(void) {
         return ESP_FAIL;
     }
 
+    /* Make socket non-blocking and set a small send timeout so that
+       sendto() cannot block indefinitely and interfere with real-time
+       control. */
+    int flags = fcntl(udp_sock, F_GETFL, 0);
+    if (flags >= 0) {
+        fcntl(udp_sock, F_SETFL, flags | O_NONBLOCK);
+    }
+    struct timeval tv = {0, 100000}; /* 100 ms */
+    setsockopt(udp_sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
     ESP_LOGI(TAG, "UDP socket initialized successfully");
     return ESP_OK;
 }
@@ -115,6 +126,15 @@ esp_err_t udp_server_init(void) {
         return ESP_FAIL;
     }
 
+    /* Make listen socket non-blocking and give it a small recv timeout to
+       avoid blocking the receiver task in case of network issues. */
+    int flags = fcntl(udp_listen_sock, F_GETFL, 0);
+    if (flags >= 0) {
+        fcntl(udp_listen_sock, F_SETFL, flags | O_NONBLOCK);
+    }
+    struct timeval rtv = {0, 200000}; /* 200 ms */
+    setsockopt(udp_listen_sock, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
+
     ESP_LOGI(TAG, "UDP server socket initialized successfully on port %d", LISTEN_PORT);
     return ESP_OK;
 }
@@ -131,6 +151,14 @@ static void udp_send_data(const char *data) {
     // } else {
     //     ESP_LOGI(TAG, "Data sent successfully: %s", data);
     // }
+    if (err < 0) {
+        if (errno == EWOULDBLOCK || errno == EAGAIN) {
+            /* socket would block - skip this sample to avoid blocking the
+               control loop */
+            return;
+        }
+        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+    }
 }
 
 void send_initial_pid_values(void) {
@@ -318,6 +346,8 @@ void regulator_task(void *arg)
     }
 }
 
+#if PYTHON_PLOTTER_DEBUG
+
 void udp_sender_task(void *arg)
 {
     char msg[UDP_MSG_MAX_LEN];
@@ -325,6 +355,13 @@ void udp_sender_task(void *arg)
     TickType_t last_wake_time = xTaskGetTickCount();
 
     while (true) {
+        if (udp_sock < 0) {
+            /* Socket isn't ready yet - wait a bit and retry. Use a longer
+               delay so this low-priority background task doesn't spin. */
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
         latest_pitch = pitch;
         latest_setPitch = setPitch;
         latest_u = u;
@@ -365,6 +402,8 @@ void udp_receiver_task(void *arg)
         parse_pid_command(rx_buffer);
     }
 }
+
+#endif // PYTHON_PLOTTER_DEBUG
 
 // void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset)
 // {
@@ -426,13 +465,15 @@ void app_main(void)
             ret = nvs_flash_init();
         }
         ESP_ERROR_CHECK(ret);
+        
+        
+    #if PYTHON_PLOTTER_DEBUG
         // wifi_init_sta();
         // while (!wifi_connected) {
         //     ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
         //     vTaskDelay(1000 / portTICK_PERIOD_MS);
         // }
-        
-    #if PYTHON_PLOTTER_DEBUG
+
         // init_debug_features();
         // vTaskDelay(pdMS_TO_TICKS(1000)); // Small delay to ensure UDP is ready
         // send_initial_pid_values();
@@ -442,10 +483,6 @@ void app_main(void)
 
     ESP_ERROR_CHECK(motor_init());
 
-        // udp_queue = xQueueCreate(UDP_QUEUE_LEN, UDP_MSG_MAX_LEN);
-        // if (udp_queue == NULL) {
-        //     ESP_LOGI(TAG, "Failed to create UDP queue");
-        // }
         xTaskCreate(regulator_task, "regulator_task", 4096, NULL, 5, NULL);
     } else {
         ESP_LOGE(TAG, "DMP Initialization failed (code %d)", devStatus);
