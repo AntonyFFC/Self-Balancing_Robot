@@ -109,7 +109,7 @@ def update(frame):
                 x_data = [i for i in range(len(x_data))]
 
             if save_to_csv.get():
-                csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D'], pid_values['MP'], pid_values['MT']])
+                csv_data.append([elapsed_time, pitch, setPitch, u, pid_values['P'], pid_values['I'], pid_values['D']])
             
             line1.set_data(x_data, pitch_data)
             line2.set_data(x_data, setpitch_data)
@@ -204,30 +204,7 @@ def parse_init_message(message):
                 d_entry.delete(0, tk.END)
                 d_entry.insert(0, f"{d_val:.1f}")
             
-            mp_pos = pid_info.find("MP=")
-            if mp_pos != -1:
-                mp_end = pid_info.find(",", mp_pos)
-                if mp_end == -1:
-                    mp_end = len(pid_info)
-                mp_val = float(pid_info[mp_pos+3:mp_end])
-                pid_values['MP'] = mp_val
-                mp_scale.set(mp_val)
-                mp_entry.delete(0, tk.END)
-                mp_entry.insert(0, f"{mp_val:.1f}")
-            
-            # Extract MT value
-            mt_pos = pid_info.find("MT=")
-            if mt_pos != -1:
-                mt_end = pid_info.find(",", mt_pos)
-                if mt_end == -1:
-                    mt_end = len(pid_info)
-                mt_val = float(pid_info[mt_pos+3:mt_end])
-                pid_values['MT'] = mt_val
-                mt_scale.set(mt_val)
-                mt_entry.delete(0, tk.END)
-                mt_entry.insert(0, f"{mt_val:.1f}")
-            
-            print(f"Received PID values - P:{pid_values['P']}, I:{pid_values['I']}, D:{pid_values['D']}, MP:{pid_values['MP']}, MT:{pid_values['MT']}")
+            print(f"Received PID values - P:{pid_values['P']}, I:{pid_values['I']}, D:{pid_values['D']}")
                 
     except Exception as e:
         print(f"Error parsing init message: {e}")
@@ -276,10 +253,10 @@ def reset_error_display():
     except:
         pass
 
-pid_values = {'P': 0.0, 'I': 900000.0, 'D': 0.0, 'MP': 0.0, 'MT': 0.0}
+pid_values = {'P': 0.0, 'I': 900000.0, 'D': 0.0}
 
 def send_pid_values():
-    cmd = f"P={pid_values['P']},I={pid_values['I']},D={pid_values['D']},MP={pid_values['MP']},MT={pid_values['MT']}\n"
+    cmd = f"P={pid_values['P']},I={pid_values['I']},D={pid_values['D']}\n"
     print(f"Sending command '{cmd.strip()}' to {ESP_IP}:{ESP_PORT}")
     try:
         send_sock.sendto(cmd.encode(), (ESP_IP, ESP_PORT))
@@ -302,15 +279,7 @@ def send_d_gain(val):
     d_entry.delete(0, tk.END)
     d_entry.insert(0, f"{float(val):.1f}")
 
-def send_min_pwm(val):
-    pid_values['MP'] = float(val)
-    mp_entry.delete(0, tk.END)
-    mp_entry.insert(0, f"{float(val):.1f}")
-
-def send_motor_threshold(val):
-    pid_values['MT'] = float(val)
-    mt_entry.delete(0, tk.END)
-    mt_entry.insert(0, f"{float(val):.1f}")
+# send_min_pwm removed (ESP32 no longer uses MP)
 
 def send_pid_button_click():
     send_pid_values()
@@ -351,23 +320,7 @@ def on_d_entry_change(event):
     except ValueError:
         pass
 
-def on_mp_entry_change(event):
-    try:
-        val = float(mp_entry.get())
-        if 0.0 <= val <= 100.0:
-            mp_scale.set(val)
-            pid_values['MP'] = val
-    except ValueError:
-        pass
-
-def on_mt_entry_change(event):
-    try:
-        val = float(mt_entry.get())
-        if 0.0 <= val <= 100.0:
-            mt_scale.set(val)
-            pid_values['MT'] = val
-    except ValueError:
-        pass
+# MP/MT entry handlers removed (ESP32 no longer uses MP/MT)
 
 root = tk.Tk()
 root.title("PID Control")
@@ -381,7 +334,7 @@ def on_closing():
         try:
             with open(csv_filename, 'w', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(['Time', 'Pitch', 'SetPitch', 'ControlSignal', 'P_Gain', 'I_Gain', 'D_Gain', 'Min_PWM_Percent', 'Motor_Threshold_Percent'])
+                writer.writerow(['Time', 'Pitch', 'SetPitch', 'ControlSignal', 'P_Gain', 'I_Gain', 'D_Gain'])
                 writer.writerows(csv_data)
             print(f"Data successfully saved to: {csv_filename}")
             print(f"Total data points saved: {len(csv_data)}")
@@ -426,23 +379,7 @@ d_scale.pack()
 d_entry = tk.Entry(d_frame, width=8)
 d_entry.pack(pady=5)
 
-# Minimum PWM controls
-mp_frame = tk.Frame(pid_frame)
-mp_frame.pack(side=tk.LEFT, padx=10)
-tk.Label(mp_frame, text="Min PWM %").pack()
-mp_scale = tk.Scale(mp_frame, from_=100.0, to=0.0, resolution=0.1, orient=tk.VERTICAL, command=send_min_pwm)
-mp_scale.pack()
-mp_entry = tk.Entry(mp_frame, width=8)
-mp_entry.pack(pady=5)
-
-# Motor Threshold controls
-mt_frame = tk.Frame(pid_frame)
-mt_frame.pack(side=tk.LEFT, padx=10)
-tk.Label(mt_frame, text="Motor Threshold %").pack()
-mt_scale = tk.Scale(mt_frame, from_=30.0, to=0.0, resolution=0.1, orient=tk.VERTICAL, command=send_motor_threshold)
-mt_scale.pack()
-mt_entry = tk.Entry(mt_frame, width=8)
-mt_entry.pack(pady=5)
+# (Min PWM and Motor Threshold controls removed - handled on ESP32)
 
 # Send PID button
 send_button_frame = tk.Frame(root)
@@ -501,16 +438,10 @@ i_entry.bind('<Return>', on_i_entry_change)
 i_entry.bind('<FocusOut>', on_i_entry_change)
 d_entry.bind('<Return>', on_d_entry_change)
 d_entry.bind('<FocusOut>', on_d_entry_change)
-mp_entry.bind('<Return>', on_mp_entry_change)
-mp_entry.bind('<FocusOut>', on_mp_entry_change)
-mt_entry.bind('<Return>', on_mt_entry_change)
-mt_entry.bind('<FocusOut>', on_mt_entry_change)
 
 p_entry.insert(0, "2.5")
 i_entry.insert(0, "900000.0")
 d_entry.insert(0, "0.0")
-mp_entry.insert(0, "0.0")
-mt_entry.insert(0, "0.0")
 
 canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.draw()
