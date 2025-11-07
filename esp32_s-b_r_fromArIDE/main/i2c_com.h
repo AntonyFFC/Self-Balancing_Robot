@@ -7,6 +7,7 @@
 #include <stdio.h>
 
 
+esp_err_t i2c_master_init(void);
 esp_err_t i2c_com_read_byte(uint8_t reg, uint8_t *data, size_t len);
 esp_err_t i2c_com_write_byte(uint8_t reg, uint8_t *data, size_t len);
 

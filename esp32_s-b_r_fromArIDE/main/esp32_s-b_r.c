@@ -16,6 +16,7 @@
 #include "cJSON.h"
 #include "mpu6050.h"
 #include "i2c_com.h"
+#include "motor.h"
 
 #define PYTHON_PLOTTER_DEBUG           CONFIG_PYTHON_PLOTTER_DEBUG
 
@@ -36,11 +37,6 @@ volatile float pitch = 0.0f;
 static volatile bool mpuInterrupt = false;
 uint16_t packetSize;
 bool dmpReady = false;
-
-// Motor deadband compensation parameters
-static float min_pwm_percent = 0.0f;  // Minimum PWM percentage for motor movement
-static float motor_threshold_percent = 5.0f;  // Minimum PWM threshold to activate motors (stop below this)
-
 // ============================================================================
 // UDP DEBUG SECTION - UDP/Python plotter debug functionality
 // ============================================================================
@@ -139,16 +135,14 @@ static void udp_send_data(const char *data) {
 
 void send_initial_pid_values(void) {
     char init_msg[UDP_MSG_MAX_LEN];
-    snprintf(init_msg, sizeof(init_msg), "INIT:P=%.3f,I=%.6f,D=%.3f,MP=%.1f,MT=%.1f\n", 
-             pid_K, pid_Ti, pid_Td, min_pwm_percent, motor_threshold_percent);
+    snprintf(init_msg, sizeof(init_msg), "INIT:P=%.3f,I=%.6f,D=%.3f\n", 
+             pid_K, pid_Ti, pid_Td);
     udp_send_data(init_msg);
     ESP_LOGI(TAG, "Sent initial PID values: %s", init_msg);
 }
 
 void parse_pid_command(const char* cmd) {
     float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
-    float new_min_pwm = min_pwm_percent;
-    float new_motor_threshold = motor_threshold_percent;
     bool updated = false;
 
     if (strstr(cmd, "GET") != NULL) {
@@ -175,26 +169,12 @@ void parse_pid_command(const char* cmd) {
         updated = true;
     }
     
-    char* mp_pos = strstr(cmd, "MP=");
-    if (mp_pos != NULL) {
-        new_min_pwm = atof(mp_pos + 3);
-        updated = true;
-    }
-    
-    char* mt_pos = strstr(cmd, "MT=");
-    if (mt_pos != NULL) {
-        new_motor_threshold = atof(mt_pos + 3);
-        updated = true;
-    }
-    
     if (updated) {
         pid_K = new_P;
         pid_Ti = new_I;
         pid_Td = new_D;
-        min_pwm_percent = new_min_pwm;
-        motor_threshold_percent = new_motor_threshold;
-        ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f, MP=%.1f%%, MT=%.1f%%", 
-                 pid_K, pid_Ti, pid_Td, min_pwm_percent, motor_threshold_percent);
+        ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f", 
+                 pid_K, pid_Ti, pid_Td);
     }
 }
 
@@ -207,205 +187,15 @@ void init_debug_features(void) {
 #endif // PYTHON_PLOTTER_DEBUG
 // ============================================================================
 
-#define I2C_MASTER_SCL_IO           22      /*!< GPIO number used for I2C master clock */
-#define I2C_MASTER_SDA_IO           21      /*!< GPIO number used for I2C master data  */
-#define I2C_MASTER_NUM              0                          /*!< I2C master i2c port number, the number of i2c peripheral interfaces available will depend on the chip */
-#define I2C_MASTER_TIMEOUT_MS       100
-#define I2C_MASTER_FREQ_HZ          400000   
-#define I2C_MASTER_TX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */ 
-
-// #define ACC_I2C_ADDR (0b1101000 << 1)
-#define ACC_I2C_ADDR 0x68          /*!< I2C address of MPU6050 accelerometer/gyroscope NOT SHIFTED, only 7 bit*/
-#define ACCEL_START_REG 0x3B
-#define GYRO_START_REG 0x43
-#define WHO_AM_I_REG 0x75
-
-#define LEDC_TIMER              LEDC_TIMER_0
-#define LEDC_MODE               LEDC_LOW_SPEED_MODE
-// #define LEDC_OUTPUT_IO_1        33
-#define LEDC_CHANNEL_n1          LEDC_CHANNEL_0
-// #define LEDC_OUTPUT_IO_2        12
-#define LEDC_CHANNEL_n2          LEDC_CHANNEL_1
-#define LEDC_CHANNEL_n3          LEDC_CHANNEL_2
-#define LEDC_CHANNEL_n4          LEDC_CHANNEL_3
-#define LEDC_DUTY_RES           LEDC_TIMER_14_BIT
-#define LEDC_MAX_DUTY           16383
-#define LEDC_DUTY               8191
-#define LEDC_FREQUENCY          500 
-
-// #define L298N_ENA_GPIO LEDC_OUTPUT_IO_1
-#define LEDC_OUTPUT_IO_1 25
-#define LEDC_OUTPUT_IO_2 26
-#define LEDC_OUTPUT_IO_3 27
-#define LEDC_OUTPUT_IO_4 14
-// #define L298N_ENB_GPIO LEDC_OUTPUT_IO_2
-
 #define MPU_INT 4
-
-
 #define TASK_PERIOD_MS 10 // changed from 10
 
-static void pwm_init(void)
-{
-    ledc_timer_config_t ledc_timer = {
-        .speed_mode       = LEDC_MODE,
-        .timer_num        = LEDC_TIMER,
-        .duty_resolution  = LEDC_DUTY_RES,
-        .freq_hz          = LEDC_FREQUENCY,
-        .clk_cfg          = LEDC_AUTO_CLK
-    };
-    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
-
-    ledc_channel_config_t ledc_channel1 = {
-        .speed_mode     = LEDC_MODE,
-        .channel        = LEDC_CHANNEL_n1,
-        .timer_sel      = LEDC_TIMER,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = LEDC_OUTPUT_IO_1,
-        .duty           = 0,
-        .hpoint         = 0
-    };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel1));
-
-    ledc_channel_config_t ledc_channel2 = {
-        .speed_mode     = LEDC_MODE,
-        .channel        = LEDC_CHANNEL_n2,
-        .timer_sel      = LEDC_TIMER,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = LEDC_OUTPUT_IO_2,
-        .duty           = 0,
-        .hpoint         = 0
-    };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel2));
-
-    ledc_channel_config_t ledc_channel_3 = {
-        .speed_mode     = LEDC_MODE,
-        .channel        = LEDC_CHANNEL_n3,
-        .timer_sel      = LEDC_TIMER,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = LEDC_OUTPUT_IO_3,
-        .duty           = 0,
-        .hpoint         = 0
-    };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel_3));
-
-    ledc_channel_config_t ledc_channel4 = {
-        .speed_mode     = LEDC_MODE,
-        .channel        = LEDC_CHANNEL_n4,
-        .timer_sel      = LEDC_TIMER,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = LEDC_OUTPUT_IO_4,
-        .duty           = 0,
-        .hpoint         = 0
-    };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel4));
-}
 
 void IRAM_ATTR mpu_isr_handler(void* arg)
 {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     vTaskNotifyGiveFromISR(mpu_task_handle, &xHigherPriorityTaskWoken);
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-}
-
-// static void motor_gpio_init(void)
-// {
-//     gpio_config_t io_conf = {};
-//     io_conf.intr_type = GPIO_INTR_DISABLE;
-//     io_conf.mode = GPIO_MODE_OUTPUT;
-//     io_conf.pin_bit_mask = (1ULL << L298N_IN1_GPIO) | (1ULL << L298N_IN2_GPIO) | (1ULL << L298N_IN3_GPIO) | (1ULL << L298N_IN4_GPIO);
-//     io_conf.pull_down_en = 0;
-//     io_conf.pull_up_en = 0;
-//     gpio_config(&io_conf);
-    
-//     gpio_set_level(L298N_IN1_GPIO, 0);
-//     gpio_set_level(L298N_IN2_GPIO, 0);
-//     gpio_set_level(L298N_IN3_GPIO, 0);
-//     gpio_set_level(L298N_IN4_GPIO, 0);
-// }
-
-static esp_err_t i2c_master_init(void)
-{
-    int i2c_master_port = I2C_MASTER_NUM;
-
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_MASTER_SDA_IO,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_MASTER_FREQ_HZ,
-    };
-
-    i2c_param_config(i2c_master_port, &conf);
-
-    return i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
-}
-
-void read3dData(float* x, float* y, float* z, float rangeFactor, uint8_t startReg)
-{
-    int16_t rawX, rawY, rawZ;
-    uint8_t i2c_receive8bit_buf[6];
-    const uint8_t bytes_to_receive = 6;
-    esp_err_t ret;
-    int retry_count = 0;
-    const int max_retries = 3;
-
-    do {
-        ret = i2c_com_read_byte(startReg, i2c_receive8bit_buf, bytes_to_receive);
-        if (ret == ESP_OK) {
-            break;
-        }
-        
-        if (ret == ESP_ERR_TIMEOUT) {
-            ESP_LOGI(TAG, "I2C timeout on read attempt %d, retrying...", retry_count + 1);
-            vTaskDelay(pdMS_TO_TICKS(1));
-        } else {
-            ESP_LOGE(TAG, "I2C read error: 0x%x on attempt %d", ret, retry_count + 1);
-        }
-        
-        retry_count++;
-    } while (retry_count < max_retries);
-
-    if (ret != ESP_OK) {
-        // ESP_LOGE(TAG, "Failed to read sensor data after %d retries, using zeros", max_retries);
-        #if PYTHON_PLOTTER_DEBUG
-        send_i2c_error("SENSOR_READ_FAILED", ret);
-        #endif
-        *x = 0.0f;
-        *y = 0.0f; 
-        *z = 0.0f;
-        return;
-    }
-
-    rawX = (int16_t)(i2c_receive8bit_buf[0] << 8 | i2c_receive8bit_buf[1]);
-    rawY = (int16_t)(i2c_receive8bit_buf[2] << 8 | i2c_receive8bit_buf[3]);
-    rawZ = (int16_t)(i2c_receive8bit_buf[4] << 8 | i2c_receive8bit_buf[5]);
-
-    *x = (float)rawX / pow(2, 15) * rangeFactor;
-    *y = (float)rawY / pow(2, 15) * rangeFactor;
-    *z = (float)rawZ / pow(2, 15) * rangeFactor;
-}
-
-void readAccelerometer(float* x, float* y, float* z)
-{
-	  const float wspolczynnik = 2;
-	  read3dData(x, y, z, wspolczynnik, ACCEL_START_REG);
-}
-
-void readGyroscope(float* x, float* y, float* z)
-{
-	const float wspolczynnik = 250.0f;
-	read3dData(x, y, z, wspolczynnik, GYRO_START_REG);
-}
-
-void calculatePitch(float *pitch, float ax, float ay, float az, float gx, float dt)
-{
-	const float alpha = 0.85;
-	float acc_pitch = atan2(ax, sqrt(ay*ay+az*az)) * 180.0 / M_PI;
-    // float acc_pitch = atan2(az, sqrt(ax*ax + ay*ay)) * (180.0 / M_PI); // Alternative vertical formula
-	*pitch = alpha * (*pitch + gx * dt) + (1.0f-alpha) * acc_pitch;
 }
 
 float PID(float y, float yzad)
@@ -449,64 +239,6 @@ float PID(float y, float yzad)
 	this_u = r2*e_2 + r1*e_1 + r0*e + this_u;
 	return this_u;
 }
-
-
-float compensate_motor_deadband(float control_signal, float max_control) {
-    float abs_control = fabs(control_signal);
-    float min_pwm = min_pwm_percent / 100.0f;
-    
-    return min_pwm + (abs_control / max_control) * (1.0f - min_pwm);
-}
-
-
-void forward(float pwm_ratio)
-{
-    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, pwm_duty));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n3, pwm_duty));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n3));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n4, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n4));
-}
-
-void backward(float pwm_ratio)
-{
-    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, pwm_duty));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n3, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n3));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n4, pwm_duty));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n4));
-}
-
-void stop()
-{
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n3, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n3));
-
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n4, 0));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n4));
-}
-
-void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset);
 
 void regular_100Hz_task(void *arg)
 {
@@ -573,14 +305,14 @@ void regulator_task(void *arg)
         if(local_pitch>150.0f && local_pitch < 200) {
             if(u>0)
             {
-            forward(pwm_ratio);
+                motor_forward(pwm_ratio);
             }
             else if (u<0)
             {
-            backward(pwm_ratio);
+                motor_backward(pwm_ratio);
             }
         } else {
-            stop();
+            motor_stop();
         }
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
     }
@@ -634,26 +366,26 @@ void udp_receiver_task(void *arg)
     }
 }
 
-void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset)
-{
-    float x, y, z;
-    const int samples = 10000;
-    float sum_x = 0, sum_y = 0, sum_z = 0;
+// void calibrate_gyroscope_offset(float* x_offset, float* y_offset, float* z_offset)
+// {
+//     float x, y, z;
+//     const int samples = 10000;
+//     float sum_x = 0, sum_y = 0, sum_z = 0;
 
-    for (int i = 0; i < samples; ++i) {
-        readGyroscope(&x, &y, &z);
-        sum_x += x;
-        sum_y += y;
-        sum_z += z;
-        vTaskDelay(pdMS_TO_TICKS(2));
-    }
+//     for (int i = 0; i < samples; ++i) {
+//         readGyroscope(&x, &y, &z);
+//         sum_x += x;
+//         sum_y += y;
+//         sum_z += z;
+//         vTaskDelay(pdMS_TO_TICKS(2));
+//     }
 
-    *x_offset = sum_x / samples;
-    *y_offset = sum_y / samples;
-    *z_offset = sum_z / samples;
+//     *x_offset = sum_x / samples;
+//     *y_offset = sum_y / samples;
+//     *z_offset = sum_z / samples;
 
-    ESP_LOGI(TAG, "Gyro offsets: X=%.3f, Y=%.3f, Z=%.3f", *x_offset, *y_offset, *z_offset);
-}
+//     ESP_LOGI(TAG, "Gyro offsets: X=%.3f, Y=%.3f, Z=%.3f", *x_offset, *y_offset, *z_offset);
+// }
 
 void app_main(void)
 {
@@ -708,7 +440,7 @@ void app_main(void)
         ESP_LOGI(TAG, "UDP debug disabled");
     #endif
 
-        pwm_init();
+    ESP_ERROR_CHECK(motor_init());
 
         // udp_queue = xQueueCreate(UDP_QUEUE_LEN, UDP_MSG_MAX_LEN);
         // if (udp_queue == NULL) {
