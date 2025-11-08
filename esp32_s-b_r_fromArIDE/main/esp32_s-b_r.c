@@ -24,6 +24,10 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#define DRIVE_ANGLE_OFFSET 8.0f
+#define SPEED_SLEW_RATE 5.0f
+#define UPRIGHT_PITCH 178.0f
+
 static const char *TAG = "self-balancing-robot";
 
 TaskHandle_t mpu_task_handle = NULL;
@@ -40,6 +44,18 @@ bool dmpReady = false;
 
 SemaphoreHandle_t pitch_mutex;
 SemaphoreHandle_t u_mutex;
+SemaphoreHandle_t move_mutex;
+SemaphoreHandle_t setPitch_mutex;
+
+typedef enum {
+    MOVE_STOP = 0,
+    MOVE_FORWARD,
+    MOVE_BACKWARD,
+    MOVE_LEFT,
+    MOVE_RIGHT
+} move_cmd_t;
+
+static volatile move_cmd_t manual_move = MOVE_STOP;
 // ============================================================================
 // UDP DEBUG SECTION - UDP/Python plotter debug functionality
 // ============================================================================
@@ -181,6 +197,42 @@ void parse_pid_command(const char* cmd) {
     }
 }
 
+void parse_move_command(const char* cmd) {
+    // Expecting format: MOVE:FORWARD|BACKWARD|LEFT|RIGHT|STOP
+    const char *pos = strstr(cmd, "MOVE:");
+    if (!pos) return;
+
+    pos += strlen("MOVE:");
+    // copy token to local buffer and strip whitespace/newline
+    char token[32];
+    int i = 0;
+    while (*pos && i < (int)sizeof(token)-1) {
+        if (*pos == '\r' || *pos == '\n') break;
+        token[i++] = *pos++;
+    }
+    token[i] = '\0';
+
+    // uppercase token already expected from sender; be permissive
+    move_cmd_t new_cmd = MOVE_STOP;
+    if (strcasecmp(token, "FORWARD") == 0) new_cmd = MOVE_FORWARD;
+    else if (strcasecmp(token, "BACKWARD") == 0) new_cmd = MOVE_BACKWARD;
+    else if (strcasecmp(token, "LEFT") == 0) new_cmd = MOVE_LEFT;
+    else if (strcasecmp(token, "RIGHT") == 0) new_cmd = MOVE_RIGHT;
+    else if (strcasecmp(token, "STOP") == 0) new_cmd = MOVE_STOP;
+    else {
+        ESP_LOGW(TAG, "Unknown MOVE token: %s", token);
+        return;
+    }
+
+    if (xSemaphoreTake(move_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        manual_move = new_cmd;
+        xSemaphoreGive(move_mutex);
+        ESP_LOGI(TAG, "Manual move set to %s", token);
+    } else {
+        ESP_LOGW(TAG, "Could not obtain move_mutex to set manual move");
+    }
+}
+
 void init_debug_features(void) {
     ESP_ERROR_CHECK(my_udp_init());
     ESP_ERROR_CHECK(udp_server_init());
@@ -193,6 +245,20 @@ void init_debug_features(void) {
 #define MPU_INT 4
 #define TASK_PERIOD_MS 10 // changed from 10
 
+void update_ramped_speed(float *current_speed, float target_speed, float slew_rate, float dt)
+{
+    if (*current_speed < target_speed) {
+        *current_speed += slew_rate * dt;
+        if (*current_speed > target_speed) {
+            *current_speed = target_speed;
+        }
+    } else if (*current_speed > target_speed) {
+        *current_speed -= slew_rate * dt;
+        if (*current_speed < target_speed) {
+            *current_speed = target_speed;
+        }
+    }
+}
 
 void IRAM_ATTR mpu_isr_handler(void* arg)
 {
@@ -292,13 +358,12 @@ void regulator_task(void *arg)
     TickType_t last_wake_time = xTaskGetTickCount();
     const float max_u = 255.0f;
     
-
     while (true)
     {
         if (!dmpReady) {
             return;
         }
-        
+
         float local_pitch;
         if (xSemaphoreTake(pitch_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
             local_pitch = pitch;
@@ -307,7 +372,35 @@ void regulator_task(void *arg)
             continue;
         }
 
-        float local_u = PID(local_pitch, setPitch);
+        float local_setPitch;
+        if (xSemaphoreTake(setPitch_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            local_setPitch = setPitch;
+            xSemaphoreGive(setPitch_mutex);
+        } else {
+            continue;
+        }
+
+        move_cmd_t local_move;
+        if (xSemaphoreTake(move_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            local_move = manual_move;
+            xSemaphoreGive(move_mutex);
+        } else {
+            continue;
+        }
+
+        if (local_move == MOVE_STOP)
+        {
+            local_setPitch = UPRIGHT_PITCH;
+        } else if (local_move == MOVE_FORWARD) {
+            update_ramped_speed(&local_setPitch, UPRIGHT_PITCH - DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+        } else if (local_move == MOVE_BACKWARD) {
+            update_ramped_speed(&local_setPitch, UPRIGHT_PITCH + DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+        } else {
+            // For LEFT/RIGHT commands temporarily just return to neutral
+            local_setPitch = UPRIGHT_PITCH;
+        }
+        
+        float local_u = PID(local_pitch, local_setPitch);
 
         if (local_u > max_u) local_u = max_u;
         if (local_u < -max_u) local_u = -max_u;
@@ -337,6 +430,13 @@ void regulator_task(void *arg)
             continue;
         }
 
+        if (xSemaphoreTake(setPitch_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            setPitch = local_setPitch;
+            xSemaphoreGive(setPitch_mutex);
+        } else {
+            continue;
+        }
+
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
     }
 }
@@ -358,8 +458,13 @@ void udp_sender_task(void *arg)
         } else {
             continue;
         }
-        
-        latest_setPitch = setPitch;
+
+        if (xSemaphoreTake(setPitch_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            latest_setPitch = setPitch;
+            xSemaphoreGive(setPitch_mutex);
+        } else {
+            continue;
+        }
 
         if (xSemaphoreTake(u_mutex, pdMS_TO_TICKS(5)) == pdTRUE)
         {
@@ -403,7 +508,11 @@ void udp_receiver_task(void *arg)
         inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
         
         ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
-        parse_pid_command(rx_buffer);
+        if (strstr(rx_buffer, "MOVE:") != NULL) {
+            parse_move_command(rx_buffer);
+        } else {
+            parse_pid_command(rx_buffer);
+        }
     }
 }
 
@@ -451,6 +560,8 @@ void app_main(void)
     if (devStatus == 0) {
         pitch_mutex = xSemaphoreCreateMutex();
         u_mutex = xSemaphoreCreateMutex();
+        move_mutex = xSemaphoreCreateMutex();
+        setPitch_mutex = xSemaphoreCreateMutex();
 
         mpu6050_set_dmp_enabled(true);
 

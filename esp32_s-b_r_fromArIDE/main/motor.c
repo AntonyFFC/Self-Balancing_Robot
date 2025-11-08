@@ -146,3 +146,44 @@ float motor_compensate_deadband(float control_signal, float max_control) {
     
     return min_pwm + (abs_control / max_control) * (1.0f - min_pwm);
 }
+
+void motor_turn_left(float pwm_ratio)
+{
+    // Left motor: channels 1/2, Right motor: channels 3/4
+    // To turn left: left motor backward, right motor forward
+    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
+
+    // left motor backward (channel 2)
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, 0);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, pwm_duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2);
+
+    // right motor forward (channel 3)
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n3, pwm_duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n3);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n4, 0);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n4);
+}
+
+void motor_turn_right(float pwm_ratio)
+{
+    // To turn right: left motor forward, right motor backward
+    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
+
+    // left motor forward (channel 1)
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, pwm_duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, 0);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2);
+
+    // right motor backward (channel 4)
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n3, 0);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n3);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n4, pwm_duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n4);
+}
