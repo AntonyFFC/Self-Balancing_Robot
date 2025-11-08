@@ -24,9 +24,11 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-#define DRIVE_ANGLE_OFFSET 8.0f
-#define SPEED_SLEW_RATE 5.0f
-#define UPRIGHT_PITCH 178.0f
+#define DRIVE_ANGLE_OFFSET 5.0f
+#define SPEED_SLEW_RATE 1.0f
+#define UPRIGHT_PITCH 177.0f
+#define TURN_OFFSET 70.0f
+#define TURN_SLEW_RATE 10.0f
 
 static const char *TAG = "self-balancing-robot";
 
@@ -35,7 +37,7 @@ TaskHandle_t mpu_task_handle = NULL;
 static float pid_K = 9.0f;
 static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
-static float setPitch = 178.0f, u = 0.0f;
+static float setPitch = UPRIGHT_PITCH, u = 0.0f;
 volatile float pitch = 0.0f;
 
 static volatile bool mpuInterrupt = false;
@@ -260,6 +262,21 @@ void update_ramped_speed(float *current_speed, float target_speed, float slew_ra
     }
 }
 
+void update_ramped_turn(float *current_turn, float target_turn, float slew_rate, float dt)
+{
+    if (*current_turn < target_turn) {
+        *current_turn += slew_rate * dt;
+        if (*current_turn > target_turn) {
+            *current_turn = target_turn;
+        }
+    } else if (*current_turn > target_turn) {
+        *current_turn -= slew_rate * dt;
+        if (*current_turn < target_turn) {
+            *current_turn = target_turn;
+        }
+    }
+}
+
 void IRAM_ATTR mpu_isr_handler(void* arg)
 {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -388,36 +405,56 @@ void regulator_task(void *arg)
             continue;
         }
 
+        static float turnOffset = 0.0f;
+
         if (local_move == MOVE_STOP)
         {
             local_setPitch = UPRIGHT_PITCH;
+            turnOffset = 0.0f;
         } else if (local_move == MOVE_FORWARD) {
             update_ramped_speed(&local_setPitch, UPRIGHT_PITCH - DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_BACKWARD) {
             update_ramped_speed(&local_setPitch, UPRIGHT_PITCH + DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
-        } else {
-            // For LEFT/RIGHT commands temporarily just return to neutral
+        } else if (local_move == MOVE_LEFT) {
+            update_ramped_turn(&turnOffset, -TURN_OFFSET, TURN_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+            local_setPitch = UPRIGHT_PITCH;
+        } else if (local_move == MOVE_RIGHT) {
+            update_ramped_turn(&turnOffset, TURN_OFFSET, TURN_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
             local_setPitch = UPRIGHT_PITCH;
         }
         
         float local_u = PID(local_pitch, local_setPitch);
 
-        if (local_u > max_u) local_u = max_u;
-        if (local_u < -max_u) local_u = -max_u;
+        float left_u = local_u + turnOffset;
+        float right_u = local_u - turnOffset;
 
-        float abs_control = fabs(local_u);
-        float pwm_ratio;
-        pwm_ratio = (abs_control / max_u);
-        // ESP_LOGI(TAG, "Pitch: %.2f, Control u: %.2f, PWM ratio: %.3f", local_pitch, local_u, pwm_ratio);
+        if (left_u > max_u) left_u = max_u;
+        if (left_u < -max_u) left_u = -max_u;
+        if (right_u > max_u) right_u = max_u;
+        if (right_u < -max_u) right_u = -max_u;
 
+        float left_abs_control = fabs(left_u);
+        float right_abs_control = fabs(right_u);
+        float left_pwm_ratio = (left_abs_control / max_u);
+        float right_pwm_ratio = (right_abs_control / max_u);
+        
         if(local_pitch>150.0f && local_pitch < 200) {
-            if(local_u>0)
+            if(left_u>0)
             {
-                motor_forward(pwm_ratio);
+                motor_left_forward(left_pwm_ratio);
             }
-            else if (local_u<0)
+            else if (left_u<0)
             {
-                motor_backward(pwm_ratio);
+                motor_left_backward(left_pwm_ratio);
+            }
+
+            if(right_u>0)
+            {
+                motor_right_forward(right_pwm_ratio);
+            }
+            else if (right_u<0)
+            {
+                motor_right_backward(right_pwm_ratio);
             }
         } else {
             motor_stop();

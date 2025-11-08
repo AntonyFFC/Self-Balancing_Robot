@@ -124,6 +124,50 @@ void motor_backward(float pwm_ratio)
     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n4);
 }
 
+void motor_left_forward(float pwm_ratio)
+{
+    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, pwm_duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, 0);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2);
+}
+
+void motor_left_backward(float pwm_ratio)
+{
+    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, 0);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n1);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n2, pwm_duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n2);
+}
+
+void motor_right_forward(float pwm_ratio)
+{
+    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n3, pwm_duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n3);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n4, 0);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n4);
+}
+
+void motor_right_backward(float pwm_ratio)
+{
+    uint16_t pwm_duty = (uint16_t)(pwm_ratio * LEDC_MAX_DUTY);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n3, 0);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n3);
+
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n4, pwm_duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL_n4);
+}
+
 void motor_stop(void)
 {
     ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_n1, 0);
