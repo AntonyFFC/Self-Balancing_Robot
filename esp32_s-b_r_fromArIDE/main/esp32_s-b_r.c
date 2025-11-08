@@ -345,7 +345,7 @@ void regulator_task(void *arg)
 
 void udp_sender_task(void *arg)
 {
-    char msg[UDP_MSG_MAX_LEN];
+    char msg[UDP_MSG_MAX_LEN/2];
     TickType_t last_wake_time = xTaskGetTickCount();
 
     while (true) {
@@ -377,7 +377,7 @@ void udp_sender_task(void *arg)
 
 void udp_receiver_task(void *arg)
 {
-    char rx_buffer[128];
+    char rx_buffer[UDP_MSG_MAX_LEN/2];
     struct sockaddr_in source_addr;
     socklen_t socklen = sizeof(source_addr);
     
@@ -497,6 +497,6 @@ void app_main(void)
     
 #if PYTHON_PLOTTER_DEBUG
     xTaskCreatePinnedToCore(udp_sender_task, "udp_sender_task", 4096, NULL, 4, NULL, 0);
-    // xTaskCreate(udp_receiver_task, "udp_receiver_task", 4096, NULL, 3, NULL);
+    xTaskCreatePinnedToCore(udp_receiver_task, "udp_receiver_task", 4096, NULL, 4, NULL, 0);
 #endif
 }
