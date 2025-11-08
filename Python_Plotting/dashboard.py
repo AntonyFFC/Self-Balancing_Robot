@@ -293,6 +293,19 @@ def get_pid_values():
     except Exception as e:
         print(f"Error sending GET command: {e}")
 
+
+def send_move_command(direction):
+    """Send a manual move command to the ESP32.
+    direction should be one of: FORWARD, BACKWARD, LEFT, RIGHT, STOP
+    """
+    cmd = f"MOVE:{direction}\n"
+    print(f"Sending move command '{cmd.strip()}' to {ESP_IP}:{ESP_PORT}")
+    try:
+        send_sock.sendto(cmd.encode(), (ESP_IP, ESP_PORT))
+        print("Move command sent")
+    except Exception as e:
+        print(f"Error sending move command: {e}")
+
 def on_p_entry_change(event):
     try:
         val = float(p_entry.get())
@@ -392,6 +405,35 @@ send_button.pack(side=tk.LEFT, padx=5)
 get_button = tk.Button(send_button_frame, text="Get PID Values", command=get_pid_values, 
                       bg="lightblue", font=("Arial", 12, "bold"), padx=20, pady=5)
 get_button.pack(side=tk.LEFT, padx=5)
+
+# Manual movement controls (press to start, release to stop)
+move_frame = tk.Frame(root)
+move_frame.pack(pady=6)
+tk.Label(move_frame, text="Manual Control", font=("Arial", 11, "bold")).pack()
+controls_frame = tk.Frame(move_frame)
+controls_frame.pack()
+
+# Arrange arrow buttons in a grid; bind press->start and release->stop
+btn_forward = tk.Button(controls_frame, text="↑", width=4, height=2, font=("Arial", 14))
+btn_forward.grid(row=0, column=1, padx=3, pady=3)
+btn_forward.bind('<ButtonPress-1>', lambda e: send_move_command('FORWARD'))
+btn_forward.bind('<ButtonRelease-1>', lambda e: send_move_command('STOP'))
+
+btn_left = tk.Button(controls_frame, text="←", width=4, height=2, font=("Arial", 14))
+btn_left.grid(row=1, column=0, padx=3, pady=3)
+btn_left.bind('<ButtonPress-1>', lambda e: send_move_command('LEFT'))
+btn_left.bind('<ButtonRelease-1>', lambda e: send_move_command('STOP'))
+
+# center button removed (stop handled on release)
+btn_right = tk.Button(controls_frame, text="→", width=4, height=2, font=("Arial", 14))
+btn_right.grid(row=1, column=2, padx=3, pady=3)
+btn_right.bind('<ButtonPress-1>', lambda e: send_move_command('RIGHT'))
+btn_right.bind('<ButtonRelease-1>', lambda e: send_move_command('STOP'))
+
+btn_backward = tk.Button(controls_frame, text="↓", width=4, height=2, font=("Arial", 14))
+btn_backward.grid(row=2, column=1, padx=3, pady=3)
+btn_backward.bind('<ButtonPress-1>', lambda e: send_move_command('BACKWARD'))
+btn_backward.bind('<ButtonRelease-1>', lambda e: send_move_command('STOP'))
 
 # CSV saving checkbox
 csv_frame = tk.Frame(root)
