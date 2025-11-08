@@ -11,7 +11,6 @@
 #include "driver/gpio.h"
 #include "wifi.h"
 #include "lwip/sockets.h"
-#include <fcntl.h>
 #include "lwip/netdb.h"
 #include "nvs_flash.h"
 #include "cJSON.h"
@@ -38,6 +37,9 @@ volatile float pitch = 0.0f;
 static volatile bool mpuInterrupt = false;
 uint16_t packetSize;
 bool dmpReady = false;
+
+SemaphoreHandle_t pitch_mutex;
+SemaphoreHandle_t u_mutex;
 // ============================================================================
 // UDP DEBUG SECTION - UDP/Python plotter debug functionality
 // ============================================================================
@@ -47,7 +49,7 @@ bool dmpReady = false;
 #define DESTINATION_PORT 7777
 #define LISTEN_PORT 7778
 #define UDP_MSG_MAX_LEN 128
-#define UDP_SENDER_TASK_PERIOD_MS 300
+#define UDP_SENDER_TASK_PERIOD_MS 250
 
 int udp_sock;
 struct sockaddr_in dest_addr;
@@ -87,16 +89,6 @@ esp_err_t my_udp_init(void) {
         return ESP_FAIL;
     }
 
-    /* Make socket non-blocking and set a small send timeout so that
-       sendto() cannot block indefinitely and interfere with real-time
-       control. */
-    int flags = fcntl(udp_sock, F_GETFL, 0);
-    if (flags >= 0) {
-        fcntl(udp_sock, F_SETFL, flags | O_NONBLOCK);
-    }
-    struct timeval tv = {0, 100000}; /* 100 ms */
-    setsockopt(udp_sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
     ESP_LOGI(TAG, "UDP socket initialized successfully");
     return ESP_OK;
 }
@@ -126,15 +118,6 @@ esp_err_t udp_server_init(void) {
         return ESP_FAIL;
     }
 
-    /* Make listen socket non-blocking and give it a small recv timeout to
-       avoid blocking the receiver task in case of network issues. */
-    int flags = fcntl(udp_listen_sock, F_GETFL, 0);
-    if (flags >= 0) {
-        fcntl(udp_listen_sock, F_SETFL, flags | O_NONBLOCK);
-    }
-    struct timeval rtv = {0, 200000}; /* 200 ms */
-    setsockopt(udp_listen_sock, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
-
     ESP_LOGI(TAG, "UDP server socket initialized successfully on port %d", LISTEN_PORT);
     return ESP_OK;
 }
@@ -151,14 +134,6 @@ static void udp_send_data(const char *data) {
     // } else {
     //     ESP_LOGI(TAG, "Data sent successfully: %s", data);
     // }
-    if (err < 0) {
-        if (errno == EWOULDBLOCK || errno == EAGAIN) {
-            /* socket would block - skip this sample to avoid blocking the
-               control loop */
-            return;
-        }
-        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
-    }
 }
 
 void send_initial_pid_values(void) {
@@ -301,8 +276,12 @@ void regular_100Hz_task(void *arg)
 
             newPitch = ypr[1] * 180 / M_PI;
             if (newPitch < 0) newPitch += 360;
+            // ESP_LOGW(TAG, "Pitch: %.2f", newPitch);
 
-            pitch = newPitch;
+            if (xSemaphoreTake(pitch_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+                pitch = newPitch;
+                xSemaphoreGive(pitch_mutex);
+            }
         }
     }
 }
@@ -319,29 +298,45 @@ void regulator_task(void *arg)
         if (!dmpReady) {
             return;
         }
+        
+        float local_pitch;
+        if (xSemaphoreTake(pitch_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            local_pitch = pitch;
+            xSemaphoreGive(pitch_mutex);
+        } else {
+            continue;
+        }
 
-        float local_pitch = pitch;
-        u = PID(local_pitch, setPitch);
+        float local_u = PID(local_pitch, setPitch);
 
-        if (u > max_u) u = max_u;
-        if (u < -max_u) u = -max_u;
+        if (local_u > max_u) local_u = max_u;
+        if (local_u < -max_u) local_u = -max_u;
 
-        float abs_control = fabs(u);
+        float abs_control = fabs(local_u);
         float pwm_ratio;
         pwm_ratio = (abs_control / max_u);
+        // ESP_LOGI(TAG, "Pitch: %.2f, Control u: %.2f, PWM ratio: %.3f", local_pitch, local_u, pwm_ratio);
 
         if(local_pitch>150.0f && local_pitch < 200) {
-            if(u>0)
+            if(local_u>0)
             {
                 motor_forward(pwm_ratio);
             }
-            else if (u<0)
+            else if (local_u<0)
             {
                 motor_backward(pwm_ratio);
             }
         } else {
             motor_stop();
         }
+
+        if (xSemaphoreTake(u_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            u = local_u;
+            xSemaphoreGive(u_mutex);
+        } else {
+            continue;
+        }
+
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
     }
 }
@@ -351,20 +346,29 @@ void regulator_task(void *arg)
 void udp_sender_task(void *arg)
 {
     char msg[UDP_MSG_MAX_LEN];
-    float latest_pitch, latest_setPitch, latest_u;
     TickType_t last_wake_time = xTaskGetTickCount();
 
     while (true) {
-        if (udp_sock < 0) {
-            /* Socket isn't ready yet - wait a bit and retry. Use a longer
-               delay so this low-priority background task doesn't spin. */
-            vTaskDelay(pdMS_TO_TICKS(1000));
+        float latest_pitch, latest_setPitch, latest_u;
+
+        if (xSemaphoreTake(pitch_mutex, pdMS_TO_TICKS(5)) == pdTRUE)
+        {
+            latest_pitch = pitch;
+            xSemaphoreGive(pitch_mutex);
+        } else {
+            continue;
+        }
+        
+        latest_setPitch = setPitch;
+
+        if (xSemaphoreTake(u_mutex, pdMS_TO_TICKS(5)) == pdTRUE)
+        {
+            latest_u = u;
+            xSemaphoreGive(u_mutex);
+        } else {
             continue;
         }
 
-        latest_pitch = pitch;
-        latest_setPitch = setPitch;
-        latest_u = u;
         snprintf(msg, sizeof(msg), "%.2f,%.2f,%.2f\n", latest_pitch, latest_setPitch, latest_u);
         udp_send_data(msg);
         vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(UDP_SENDER_TASK_PERIOD_MS));
@@ -445,9 +449,12 @@ void app_main(void)
     mpu6050_set_z_gyro_offset(-85);
     mpu6050_set_z_accel_offset(1688);
     if (devStatus == 0) {
+        pitch_mutex = xSemaphoreCreateMutex();
+        u_mutex = xSemaphoreCreateMutex();
+
         mpu6050_set_dmp_enabled(true);
 
-        xTaskCreate(regular_100Hz_task, "100Hz_task", 4096, NULL, 10, &mpu_task_handle);
+        xTaskCreatePinnedToCore(regular_100Hz_task, "100Hz_task", 4096, NULL, 20, &mpu_task_handle,1);
         ret = mpu6050_interrupt_init();
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to initialize MPU6050 interrupt GPIO");
@@ -468,28 +475,28 @@ void app_main(void)
         
         
     #if PYTHON_PLOTTER_DEBUG
-        // wifi_init_sta();
-        // while (!wifi_connected) {
-        //     ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
-        //     vTaskDelay(1000 / portTICK_PERIOD_MS);
-        // }
+        wifi_init_sta();
+        while (!wifi_connected) {
+            ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+        }
 
-        // init_debug_features();
-        // vTaskDelay(pdMS_TO_TICKS(1000)); // Small delay to ensure UDP is ready
-        // send_initial_pid_values();
+        init_debug_features();
+        vTaskDelay(pdMS_TO_TICKS(1000)); // Small delay to ensure UDP is ready
+        send_initial_pid_values();
     #else
         ESP_LOGI(TAG, "UDP debug disabled");
     #endif
 
     ESP_ERROR_CHECK(motor_init());
 
-        xTaskCreate(regulator_task, "regulator_task", 4096, NULL, 5, NULL);
+        xTaskCreatePinnedToCore(regulator_task, "regulator_task", 4096, NULL, 10, NULL,1);
     } else {
         ESP_LOGE(TAG, "DMP Initialization failed (code %d)", devStatus);
     }
     
 #if PYTHON_PLOTTER_DEBUG
-    // xTaskCreate(udp_sender_task, "udp_sender_task", 4096, NULL, 3, NULL);
+    xTaskCreatePinnedToCore(udp_sender_task, "udp_sender_task", 4096, NULL, 4, NULL, 0);
     // xTaskCreate(udp_receiver_task, "udp_receiver_task", 4096, NULL, 3, NULL);
 #endif
 }

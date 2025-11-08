@@ -59,7 +59,7 @@ setpitch_text = ax1.text(0.02, 0.85, 'Set Pitch: -- °', transform=ax1.transAxes
 
 # Control Signal plot
 line3, = ax2.plot([], [], 'g-', label='Control Signal (u)', linewidth=2)
-ax2.set_ylim(-150, 150)
+ax2.set_ylim(0, 255)
 ax2.set_xlim(0, 500)
 ax2.set_ylabel("Control Signal")
 ax2.set_xlabel("Time")
