@@ -215,6 +215,10 @@ class _RobotControlPageState extends State<RobotControlPage> {
   final List<double> _setPitchBuffer = [];
   final List<double> _uBuffer = [];
 
+  // PID enabled toggles
+  Map<String, bool> pidEnabled = {'P': true, 'I': true, 'D': true};
+  final Map<String, double> pidOffValues = {'P': 0.0, 'I': 900000.0, 'D': 0.0};
+
   Map<String, double> pidValues = {'P': 2.5, 'I': 900000.0, 'D': 0.0};
 
   Map<String, int> errorCounts = {
@@ -448,30 +452,78 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   Widget _buildPidControl(String label, String key, double min, double max, double step) {
-    return Column(
-      children: [
-        Text('$label: ${pidValues[key]!.toStringAsFixed(key == 'I' ? 1 : 3)}'),
-        Slider(
-          value: pidValues[key]!,
-          min: min,
-          max: max,
-          onChanged: (v) {
-            setState(() => pidValues[key] = v);
-          },
-          onChangeEnd: (v) => _sendPidValues(),
-        ),
-        SizedBox(
-          width: 120,
-          child: TextField(
-            keyboardType: TextInputType.numberWithOptions(decimal: true),
-            controller: TextEditingController(text: pidValues[key]!.toString()),
-            onSubmitted: (val) {
-              final parsed = double.tryParse(val);
-              if (parsed != null) setState(() => pidValues[key] = parsed);
-            },
+    final enabled = pidEnabled[key] ?? true;
+    final offVal = pidOffValues[key] ?? 0.0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '$label',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              Row(
+                children: [
+                  Text(enabled ? 'On' : 'Off', style: TextStyle(color: enabled ? Colors.green : Colors.red)),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: enabled,
+                    onChanged: (v) {
+                      setState(() {
+                        pidEnabled[key] = v;
+                        if (!v) {
+                          // enforce off value
+                          pidValues[key] = offVal;
+                        }
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
-        )
-      ],
+          const SizedBox(height: 8),
+          if (enabled) ...[
+            Slider(
+              value: pidValues[key]!,
+              min: min,
+              max: max,
+              onChanged: (v) {
+                // snap to nearest 0.1
+                final snapped = (v * 10).round() / 10.0;
+                setState(() => pidValues[key] = snapped.clamp(min, max));
+              },
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              controller: TextEditingController(text: pidValues[key]!.toString()),
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              ),
+              style: const TextStyle(fontSize: 16),
+              onSubmitted: (val) {
+                final parsed = double.tryParse(val);
+                if (parsed != null) setState(() => pidValues[key] = parsed.clamp(min, max));
+              },
+            ),
+          ] else ...[
+            // show OFF indicator and the enforced value beneath
+            Padding(
+              padding: const EdgeInsets.only(top: 6.0, bottom: 6.0),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Disabled — value enforced to ${offVal.toString()}'),
+              ]),
+            )
+          ]
+        ],
+      ),
     );
   }
 
@@ -525,109 +577,117 @@ class _RobotControlPageState extends State<RobotControlPage> {
             ]),
           ),
 
-          // PID Tab
+          // PID Tab (vertical layout for touch)
           Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(children: [
-              Row(
-                children: [
-                  Expanded(child: _buildPidControl('P Gain', 'P', 0.0, 20.0, 0.01)),
-                  Expanded(child: _buildPidControl('I Gain', 'I', 0.0, 900000.0, 1.0)),
-                  Expanded(child: _buildPidControl('D Gain', 'D', 0.0, 5.0, 0.01)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(children: [
-                ElevatedButton(onPressed: _sendPidValues, child: const Text('Send PID Parameters')),
-                const SizedBox(width: 8),
-                ElevatedButton(onPressed: _getPidValues, child: const Text('Get PID Values')),
-              ])
-            ]),
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                // controls scrollable area
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildPidControl('P Gain', 'P', 0.0, 20.0, 0.01),
+                        const SizedBox(height: 12),
+                        _buildPidControl('I Gain', 'I', 0.0, 900000.0, 1.0),
+                        const SizedBox(height: 12),
+                        _buildPidControl('D Gain', 'D', 0.0, 5.0, 0.01),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Buttons pinned to the end (bottom-right) — use Wrap to avoid overflow on narrow screens
+                const SizedBox(height: 12),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 12,
+                  children: [
+                    ElevatedButton(onPressed: _sendPidValues, child: const Text('Send PID Params')),
+                    ElevatedButton(onPressed: _getPidValues, child: const Text('Get PID Params')),
+                  ],
+                )
+              ],
+            ),
           ),
 
-          // Manual Tab
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Forward
-                GestureDetector(
-                  onTapDown: (_) => _sendMoveCommand('FORWARD'),
-                  onTapUp: (_) => _sendMoveCommand('STOP'),
-                  onTapCancel: () => _sendMoveCommand('STOP'),
-                  child: Material(
+          // Manual Tab (responsive layout to avoid overflow)
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final w = constraints.maxWidth;
+                // sizes adapt to available width
+                final double big = w > 420 ? 160 : (w * 0.35).clamp(80, 160);
+                final double mid = w > 420 ? 140 : (w * 0.35).clamp(64, 140);
+
+                Widget buildButton(String label, double size, VoidCallback onDown, VoidCallback onUp) {
+                  // Map arrow glyphs to Icons for consistent sizing
+                  IconData? icon;
+                  switch (label) {
+                    case '↑':
+                      icon = Icons.arrow_upward;
+                      break;
+                    case '↓':
+                      icon = Icons.arrow_downward;
+                      break;
+                    case '←':
+                      icon = Icons.arrow_back;
+                      break;
+                    case '→':
+                      icon = Icons.arrow_forward;
+                      break;
+                    default:
+                      icon = null;
+                  }
+
+                  return Material(
                     color: Theme.of(context).colorScheme.primary,
                     elevation: 4,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: SizedBox(
-                      width: 140,
-                      height: 100,
-                      child: const Center(
-                        child: Text('↑', style: TextStyle(fontSize: 36, color: Colors.white)),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Left / Right row (no STOP in center)
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  GestureDetector(
-                    onTapDown: (_) => _sendMoveCommand('LEFT'),
-                    onTapUp: (_) => _sendMoveCommand('STOP'),
-                    onTapCancel: () => _sendMoveCommand('STOP'),
-                    child: Material(
-                      color: Theme.of(context).colorScheme.primary,
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      // onTap is provided so InkWell shows splash/highlight; we use onTapDown/up for press semantics
+                      onTap: () {},
+                      onTapDown: (_) => onDown(),
+                      onTapUp: (_) => onUp(),
+                      onTapCancel: () => onUp(),
                       child: SizedBox(
-                        width: 120,
-                        height: 120,
-                        child: const Center(child: Text('←', style: TextStyle(fontSize: 34, color: Colors.white))),
+                        width: size,
+                        height: size,
+                        child: Center(
+                          child: icon != null
+                              ? Icon(icon, size: size * 0.45, color: Colors.white)
+                              : Text(label, style: TextStyle(fontSize: size * 0.28, color: Colors.white)),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 24),
-                  // spacer where STOP used to be (keeps layout balanced)
-                  SizedBox(width: 120, height: 120, child: Container()),
-                  const SizedBox(width: 24),
-                  GestureDetector(
-                    onTapDown: (_) => _sendMoveCommand('RIGHT'),
-                    onTapUp: (_) => _sendMoveCommand('STOP'),
-                    onTapCancel: () => _sendMoveCommand('STOP'),
-                    child: Material(
-                      color: Theme.of(context).colorScheme.primary,
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: SizedBox(
-                        width: 120,
-                        height: 120,
-                        child: const Center(child: Text('→', style: TextStyle(fontSize: 34, color: Colors.white))),
-                      ),
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 16),
+                  );
+                }
 
-                // Backward
-                GestureDetector(
-                  onTapDown: (_) => _sendMoveCommand('BACKWARD'),
-                  onTapUp: (_) => _sendMoveCommand('STOP'),
-                  onTapCancel: () => _sendMoveCommand('STOP'),
-                  child: Material(
-                    color: Theme.of(context).colorScheme.primary,
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: SizedBox(
-                      width: 140,
-                      height: 100,
-                      child: const Center(
-                        child: Text('↓', style: TextStyle(fontSize: 36, color: Colors.white)),
-                      ),
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Forward button centered
+                    Center(child: buildButton('↑', big, () => _sendMoveCommand('FORWARD'), () => _sendMoveCommand('STOP'))),
+                    SizedBox(height: 16),
+
+                    // Left / Right row using Expanded so it never overflows
+                    Row(
+                      children: [
+                        Expanded(child: Center(child: buildButton('←', mid, () => _sendMoveCommand('LEFT'), () => _sendMoveCommand('STOP')))),
+                        const SizedBox(width: 12),
+                        Expanded(child: Center(child: buildButton('→', mid, () => _sendMoveCommand('RIGHT'), () => _sendMoveCommand('STOP')))),
+                      ],
                     ),
-                  ),
-                ),
-              ],
+
+                    const SizedBox(height: 16),
+                    // Backward button centered
+                    Center(child: buildButton('↓', big, () => _sendMoveCommand('BACKWARD'), () => _sendMoveCommand('STOP'))),
+                  ],
+                );
+              },
             ),
           ),
 
