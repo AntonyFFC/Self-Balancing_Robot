@@ -5,7 +5,6 @@ import 'dart:io' show RawDatagramSocket, InternetAddress, File, RawSocketEvent;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:fl_chart/fl_chart.dart';
 
 void main() {
   runApp(const MyApp());
@@ -21,6 +20,167 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple)),
       home: const RobotControlPage(),
     );
+  }
+}
+
+// Simple telemetry chart that draws two lines (pitch and setPitch) using CustomPainter.
+class TelemetryChart extends StatelessWidget {
+  final List<double> pitchBuffer;
+  final List<double> setPitchBuffer;
+  final String title;
+
+  const TelemetryChart({Key? key, required this.pitchBuffer, required this.setPitchBuffer, this.title = ''}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (title.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4.0, left: 4.0),
+            child: Text(title, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return CustomPaint(
+                size: Size(constraints.maxWidth, constraints.maxHeight),
+                painter: _TelemetryPainter(pitch: pitchBuffer, setPitch: setPitchBuffer),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TelemetryPainter extends CustomPainter {
+  final List<double> pitch;
+  final List<double> setPitch;
+
+  _TelemetryPainter({required this.pitch, required this.setPitch});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paintGrid = Paint()..color = Colors.grey.withOpacity(0.25)..strokeWidth = 1.0;
+    final paintPitch = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 2.0;
+    final paintSet = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 2.0;
+
+    // draw simple grid lines
+    const gridLines = 4;
+    for (var i = 0; i <= gridLines; i++) {
+      final y = size.height * i / gridLines;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paintGrid);
+    }
+
+    final combined = <double>[];
+    combined.addAll(pitch);
+    combined.addAll(setPitch);
+    double minY = combined.isNotEmpty ? combined.reduce((a, b) => a < b ? a : b) : 0.0;
+    double maxY = combined.isNotEmpty ? combined.reduce((a, b) => a > b ? a : b) : 1.0;
+    if ((maxY - minY).abs() < 1e-6) {
+      maxY += 1.0;
+      minY -= 1.0;
+    }
+
+    void drawLine(List<double> data, Paint p) {
+      if (data.isEmpty) return;
+      final path = Path();
+      final n = data.length;
+      for (var i = 0; i < n; i++) {
+        final x = (n == 1) ? size.width / 2 : (i * size.width / (n - 1));
+        final y = size.height - ((data[i] - minY) / (maxY - minY)) * size.height;
+        if (i == 0) path.moveTo(x, y);
+        else path.lineTo(x, y);
+      }
+      canvas.drawPath(path, p);
+    }
+
+    drawLine(pitch, paintPitch);
+    drawLine(setPitch, paintSet);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TelemetryPainter oldDelegate) {
+    return oldDelegate.pitch != pitch || oldDelegate.setPitch != setPitch;
+  }
+}
+
+// Simple single-line control chart for u values.
+class ControlChart extends StatelessWidget {
+  final List<double> uBuffer;
+  final String title;
+
+  const ControlChart({Key? key, required this.uBuffer, this.title = ''}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (title.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4.0, left: 4.0),
+            child: Text(title, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return CustomPaint(
+                size: Size(constraints.maxWidth, constraints.maxHeight),
+                painter: _ControlPainter(u: uBuffer),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ControlPainter extends CustomPainter {
+  final List<double> u;
+
+  _ControlPainter({required this.u});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paintGrid = Paint()..color = Colors.grey.withOpacity(0.25)..strokeWidth = 1.0;
+    final paintU = Paint()..color = Colors.green..style = PaintingStyle.stroke..strokeWidth = 2.0;
+
+    const gridLines = 3;
+    for (var i = 0; i <= gridLines; i++) {
+      final y = size.height * i / gridLines;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paintGrid);
+    }
+
+    double minY = 0.0;
+    double maxY = 255.0;
+    if (u.isNotEmpty) {
+      final minData = u.reduce((a, b) => a < b ? a : b);
+      final maxData = u.reduce((a, b) => a > b ? a : b);
+      minY = minData < minY ? minData : minY;
+      maxY = maxData > maxY ? maxData : maxY;
+      if ((maxY - minY).abs() < 1e-6) maxY = minY + 1.0;
+    }
+
+    if (u.isEmpty) return;
+    final path = Path();
+    final n = u.length;
+    for (var i = 0; i < n; i++) {
+      final x = (n == 1) ? size.width / 2 : (i * size.width / (n - 1));
+      final y = size.height - ((u[i] - minY) / (maxY - minY)) * size.height;
+      if (i == 0) path.moveTo(x, y);
+      else path.lineTo(x, y);
+    }
+    canvas.drawPath(path, paintU);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ControlPainter oldDelegate) {
+    return oldDelegate.u != u;
   }
 }
 
@@ -142,58 +302,31 @@ class _RobotControlPageState extends State<RobotControlPage> {
     }
   }
 
-  List<FlSpot> _spotsFromBuffer(List<double> buf) {
-    final spots = <FlSpot>[];
-    for (var i = 0; i < buf.length; i++) {
-      spots.add(FlSpot(i.toDouble(), buf[i]));
-    }
-    return spots;
-  }
-
   Widget _buildTelemetryCharts() {
-    final pitchSpots = _spotsFromBuffer(_pitchBuffer);
-    final setPitchSpots = _spotsFromBuffer(_setPitchBuffer);
-    final uSpots = _spotsFromBuffer(_uBuffer);
-
+    // Lightweight charts using CustomPaint so we avoid fl_chart SDK issues.
     return Column(
       children: [
-        // Pitch vs SetPitch
         SizedBox(
-          height: 180,
-          child: LineChart(
-            LineChartData(
-              lineTouchData: LineTouchData(enabled: false),
-              gridData: FlGridData(show: true),
-              titlesData: FlTitlesData(
-                leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 36)),
-                bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          height: 160,
+          child: Card(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: TelemetryChart(
+                pitchBuffer: _pitchBuffer,
+                setPitchBuffer: _setPitchBuffer,
+                title: 'Pitch vs Set Pitch',
               ),
-              minY: (_pitchBuffer.isNotEmpty) ? (_pitchBuffer.reduce((a, b) => a < b ? a : b) - 5) : 140,
-              maxY: (_pitchBuffer.isNotEmpty) ? (_pitchBuffer.reduce((a, b) => a > b ? a : b) + 5) : 210,
-              lineBarsData: [
-                LineChartBarData(spots: pitchSpots, isCurved: true, color: Colors.blue, dotData: FlDotData(show: false), barWidth: 2),
-                LineChartBarData(spots: setPitchSpots, isCurved: true, color: Colors.red, dotData: FlDotData(show: false), barWidth: 2),
-              ],
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        // Control signal
         SizedBox(
           height: 120,
-          child: LineChart(
-            LineChartData(
-              lineTouchData: LineTouchData(enabled: false),
-              gridData: FlGridData(show: true),
-              titlesData: FlTitlesData(
-                leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 36)),
-                bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              ),
-              minY: 0,
-              maxY: 255,
-              lineBarsData: [
-                LineChartBarData(spots: uSpots, isCurved: true, color: Colors.green, dotData: FlDotData(show: false), barWidth: 2),
-              ],
+          child: Card(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: ControlChart(uBuffer: _uBuffer, title: 'Control Signal (0-255)'),
             ),
           ),
         ),
