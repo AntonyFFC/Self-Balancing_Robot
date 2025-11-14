@@ -63,7 +63,7 @@ static volatile move_cmd_t manual_move = MOVE_STOP;
 // ============================================================================
 #if PYTHON_PLOTTER_DEBUG
 
-#define DESTINATION_IP "192.168.1.161" //14 - pc //161 - phone
+// #define DESTINATION_IP "192.168.1.161" //14 - pc //161 - phone
 #define DESTINATION_PORT 7777
 #define LISTEN_PORT 7778
 #define UDP_MSG_MAX_LEN 128
@@ -71,6 +71,7 @@ static volatile move_cmd_t manual_move = MOVE_STOP;
 
 int udp_sock;
 struct sockaddr_in dest_addr;
+static bool dest_addr_known = false;
 int udp_listen_sock;
 extern bool wifi_connected;
 
@@ -78,7 +79,7 @@ static uint32_t total_i2c_errors = 0;
 
 static void udp_send_data(const char *data);
 
-static void send_i2c_error(const char* error_type, esp_err_t error_code) {
+static void __attribute__((unused)) send_i2c_error(const char* error_type, esp_err_t error_code) {
     char error_msg[UDP_MSG_MAX_LEN];
     total_i2c_errors++;
     snprintf(error_msg, sizeof(error_msg), "I2C_ERROR:%s,code=0x%x,total=%lu\n", 
@@ -98,14 +99,11 @@ esp_err_t my_udp_init(void) {
         return ESP_FAIL;
     }
 
+    // We don't know the remote host yet. The UDP destination will be learned
+    // from the first received packet (source address) and stored in dest_addr.
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(DESTINATION_PORT);
-    if (inet_pton(AF_INET, DESTINATION_IP, &dest_addr.sin_addr.s_addr) != 1) {
-        ESP_LOGE(TAG, "Invalid destination IP: %s", DESTINATION_IP);
-        close(udp_sock);
-        udp_sock = -1;
-        return ESP_FAIL;
-    }
+    dest_addr_known = false;
 
     ESP_LOGI(TAG, "UDP socket initialized successfully");
     return ESP_OK;
@@ -143,6 +141,10 @@ esp_err_t udp_server_init(void) {
 static void udp_send_data(const char *data) {
     if (udp_sock < 0) {
         ESP_LOGE(TAG, "UDP socket not initialized");
+        return;
+    }
+    if (!dest_addr_known) {
+        ESP_LOGW(TAG, "UDP destination not known yet; not sending");
         return;
     }
 
@@ -561,12 +563,17 @@ void udp_receiver_task(void *arg)
             continue;
         }
         
-        rx_buffer[len] = 0;
-        
-        char addr_str[128];
-        inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
-        
-        ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
+    rx_buffer[len] = 0;
+
+    char addr_str[128];
+    inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
+
+    // Remember the last sender as our destination for outgoing UDP messages
+    dest_addr = source_addr;
+    dest_addr.sin_port = htons(DESTINATION_PORT); // ensure our send port
+    dest_addr_known = true;
+
+    ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
         if (strstr(rx_buffer, "MOVE:") != NULL) {
             parse_move_command(rx_buffer);
         } else {
@@ -645,7 +652,7 @@ void app_main(void)
         
         
     #if PYTHON_PLOTTER_DEBUG
-        wifi_init_sta();
+        wifi_init_ap();
         while (!wifi_connected) {
             ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
             vTaskDelay(1000 / portTICK_PERIOD_MS);
