@@ -26,9 +26,12 @@
 
 #define DRIVE_ANGLE_OFFSET 5.0f
 #define SPEED_SLEW_RATE 1.0f
-static float upright_pitch = 177.0f;
 #define TURN_OFFSET 70.0f
 #define TURN_SLEW_RATE 10.0f
+
+#define STARTUP_STABLE_THRESHOLD_DEG 3.0f
+#define STARTUP_STABLE_COUNT 30
+#define STARTUP_SAMPLE_INTERVAL_MS 20
 
 static const char *TAG = "self-balancing-robot";
 
@@ -39,6 +42,10 @@ static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
 static float setPitch = 177.0f, u = 0.0f;
 volatile float pitch = 0.0f;
+static float upright_pitch = 177.0f;
+
+static volatile bool motors_enabled = false;
+static volatile bool request_pid_reset = false;
 
 static volatile bool mpuInterrupt = false;
 uint16_t packetSize;
@@ -301,6 +308,37 @@ void update_ramped_turn(float *current_turn, float target_turn, float slew_rate,
     }
 }
 
+static void wait_for_stable_pitch_and_enable(void)
+{
+    ESP_LOGI(TAG, "Waiting for stable pitch around %.2f deg...", upright_pitch);
+    int consecutive = 0;
+    while (consecutive < STARTUP_STABLE_COUNT) {
+        float sample = 0.0f;
+        if (xSemaphoreTake(pitch_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            sample = pitch;
+            xSemaphoreGive(pitch_mutex);
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(STARTUP_SAMPLE_INTERVAL_MS));
+            continue;
+        }
+
+        float diff = fabsf(sample - upright_pitch);
+        if (diff <= STARTUP_STABLE_THRESHOLD_DEG) {
+            consecutive++;
+        } else {
+            if (consecutive > 0) {
+                ESP_LOGI(TAG, "Stability broken (diff %.2f), resetting counter", diff);
+            }
+            consecutive = 0;
+        }
+        vTaskDelay(pdMS_TO_TICKS(STARTUP_SAMPLE_INTERVAL_MS));
+    }
+
+    motors_enabled = true;
+    request_pid_reset = true;
+    ESP_LOGI(TAG, "Pitch stable — motors enabled");
+}
+
 void IRAM_ATTR mpu_isr_handler(void* arg)
 {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -326,7 +364,8 @@ float PID(float y, float yzad)
     static float last_Ti = 0.0f;
     static float last_Td = 0.0f;
     
-    if (K != last_K || Ti != last_Ti || Td != last_Td) {
+    if (K != last_K || Ti != last_Ti || Td != last_Td || request_pid_reset) {
+        request_pid_reset = false;
         this_u = 0.0f;
         e = 0.0f;
         e_1 = 0.0f;
@@ -462,26 +501,30 @@ void regulator_task(void *arg)
         float left_pwm_ratio = (left_abs_control / max_u);
         float right_pwm_ratio = (right_abs_control / max_u);
         
-        if(local_pitch>150.0f && local_pitch < 200) {
-            if(left_u>0)
-            {
-                motor_left_forward(left_pwm_ratio);
-            }
-            else if (left_u<0)
-            {
-                motor_left_backward(left_pwm_ratio);
-            }
-
-            if(right_u>0)
-            {
-                motor_right_forward(right_pwm_ratio);
-            }
-            else if (right_u<0)
-            {
-                motor_right_backward(right_pwm_ratio);
-            }
-        } else {
+        if (!motors_enabled) {
             motor_stop();
+        } else {
+            if(local_pitch>150.0f && local_pitch < 200) {
+                if(left_u>0)
+                {
+                    motor_left_forward(left_pwm_ratio);
+                }
+                else if (left_u<0)
+                {
+                    motor_left_backward(left_pwm_ratio);
+                }
+
+                if(right_u>0)
+                {
+                    motor_right_forward(right_pwm_ratio);
+                }
+                else if (right_u<0)
+                {
+                    motor_right_backward(right_pwm_ratio);
+                }
+            } else {
+                motor_stop();
+            }
         }
 
         if (xSemaphoreTake(u_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
@@ -611,6 +654,8 @@ void udp_receiver_task(void *arg)
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(motor_init());
+    motor_stop();
 
     ESP_ERROR_CHECK(i2c_master_init());
     ESP_LOGI(TAG, "I2C initialized successfully");
@@ -656,6 +701,7 @@ void app_main(void)
         
         
     #if PYTHON_PLOTTER_DEBUG
+
         wifi_init_ap();
         while (!wifi_connected) {
             ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
@@ -668,8 +714,7 @@ void app_main(void)
     #else
         ESP_LOGI(TAG, "UDP debug disabled");
     #endif
-
-    ESP_ERROR_CHECK(motor_init());
+        wait_for_stable_pitch_and_enable();
 
         xTaskCreatePinnedToCore(regulator_task, "regulator_task", 4096, NULL, 10, NULL,1);
     } else {
