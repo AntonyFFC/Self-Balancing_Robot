@@ -24,13 +24,15 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// Simple telemetry chart that draws two lines (pitch and setPitch) using CustomPainter.
+// telemetry chartr.
 class TelemetryChart extends StatelessWidget {
   final List<double> pitchBuffer;
   final List<double> setPitchBuffer;
   final String title;
+  final double? minY;
+  final double? maxY;
 
-  const TelemetryChart({Key? key, required this.pitchBuffer, required this.setPitchBuffer, this.title = ''}) : super(key: key);
+  const TelemetryChart({Key? key, required this.pitchBuffer, required this.setPitchBuffer, this.title = '', this.minY, this.maxY}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +49,7 @@ class TelemetryChart extends StatelessWidget {
             builder: (context, constraints) {
               return CustomPaint(
                 size: Size(constraints.maxWidth, constraints.maxHeight),
-                painter: _TelemetryPainter(pitch: pitchBuffer, setPitch: setPitchBuffer),
+                painter: _TelemetryPainter(pitch: pitchBuffer, setPitch: setPitchBuffer, minY: minY, maxY: maxY),
               );
             },
           ),
@@ -60,52 +62,107 @@ class TelemetryChart extends StatelessWidget {
 class _TelemetryPainter extends CustomPainter {
   final List<double> pitch;
   final List<double> setPitch;
+  final double? minY;
+  final double? maxY;
 
-  _TelemetryPainter({required this.pitch, required this.setPitch});
+  // reserve some left padding for y-axis labels
+  static const double leftPadding = 44.0;
+
+  _TelemetryPainter({required this.pitch, required this.setPitch, this.minY, this.maxY});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paintGrid = Paint()..color = Colors.grey.withOpacity(0.25)..strokeWidth = 1.0;
-    final paintPitch = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 2.0;
-    final paintSet = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 2.0;
+  final paintGrid = Paint()..color = Colors.grey.withOpacity(0.25)..strokeWidth = 1.0;
+  final paintPitch = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 2.0;
+  final paintSet = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 2.0;
 
-    // draw simple grid lines
-    const gridLines = 4;
-    for (var i = 0; i <= gridLines; i++) {
-      final y = size.height * i / gridLines;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paintGrid);
-    }
+  // compute drawing rect that leaves room for left axis labels
+  final plotLeft = leftPadding;
+  final plotWidth = size.width - plotLeft;
+  final plotHeight = size.height;
+
+    // (grid lines are drawn with the tick loop below so remove the earlier full-width grid)
 
     final combined = <double>[];
     combined.addAll(pitch);
     combined.addAll(setPitch);
-    double minY = combined.isNotEmpty ? combined.reduce((a, b) => a < b ? a : b) : 0.0;
-    double maxY = combined.isNotEmpty ? combined.reduce((a, b) => a > b ? a : b) : 1.0;
-    if ((maxY - minY).abs() < 1e-6) {
-      maxY += 1.0;
-      minY -= 1.0;
+    double dataMin = combined.isNotEmpty ? combined.reduce((a, b) => a < b ? a : b) : 0.0;
+    double dataMax = combined.isNotEmpty ? combined.reduce((a, b) => a > b ? a : b) : 1.0;
+
+    // use provided fixed range if available else fall back to data range
+    final double finalMinY = (minY ?? dataMin) - 0.0; // no extra padding for fixed ranges
+    final double finalMaxY = (maxY ?? dataMax) + 0.0;
+    double range = finalMaxY - finalMinY;
+    if (range.abs() < 1e-6) range = 1.0;
+
+    // draw left axis ticks and labels
+    const int ticks = 4;
+    final textStyle = TextStyle(color: Colors.black87, fontSize: 12);
+    for (var t = 0; t <= ticks; t++) {
+      final dy = t / ticks;
+      final y = plotHeight * dy;
+      final value = finalMaxY - dy * range;
+      // thin grid
+      canvas.drawLine(Offset(plotLeft, y), Offset(size.width, y), paintGrid);
+      // label
+      final tp = TextPainter(text: TextSpan(text: value.toStringAsFixed(1), style: textStyle), textDirection: TextDirection.ltr);
+      tp.layout();
+      tp.paint(canvas, Offset(plotLeft - tp.width - 6, y - tp.height / 2));
     }
 
-    void drawLine(List<double> data, Paint p) {
+    // highlight out-of-range by drawing translucent red bands at the top/bottom
+    final hasAbove = (pitch.any((v) => v > finalMaxY) || setPitch.any((v) => v > finalMaxY));
+    final hasBelow = (pitch.any((v) => v < finalMinY) || setPitch.any((v) => v < finalMinY));
+    final bandPaint = Paint()..color = Colors.red.withOpacity(0.12)..style = PaintingStyle.fill;
+    const bandFrac = 0.07; // band height fraction of plot
+    if (hasAbove) {
+      canvas.drawRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight * bandFrac), bandPaint);
+    }
+    if (hasBelow) {
+      canvas.drawRect(Rect.fromLTWH(plotLeft, plotHeight * (1 - bandFrac), plotWidth, plotHeight * bandFrac), bandPaint);
+    }
+
+    // helper to map data value to canvas y inside plot area
+    double mapY(double v) => plotHeight - ((v - finalMinY) / range) * plotHeight;
+
+    void drawSeries(List<double> data, Paint normalPaint) {
       if (data.isEmpty) return;
-      final path = Path();
       final n = data.length;
-      for (var i = 0; i < n; i++) {
-        final x = (n == 1) ? size.width / 2 : (i * size.width / (n - 1));
-        final y = size.height - ((data[i] - minY) / (maxY - minY)) * size.height;
-        if (i == 0) path.moveTo(x, y);
-        else path.lineTo(x, y);
+
+      // clip lines so they never draw outside the plot area
+      canvas.save();
+      canvas.clipRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight));
+
+      for (var i = 1; i < n; i++) {
+        final x0 = plotLeft + ((i - 1) * plotWidth / (n - 1));
+        final x1 = plotLeft + ((i) * plotWidth / (n - 1));
+        // clamp values to the visible range so lines stop at the edge rather than drawing outside
+        final v0 = data[i - 1].clamp(finalMinY, finalMaxY);
+        final v1 = data[i].clamp(finalMinY, finalMaxY);
+        final y0 = mapY(v0);
+        final y1 = mapY(v1);
+        canvas.drawLine(Offset(x0, y0), Offset(x1, y1), normalPaint);
       }
-      canvas.drawPath(path, p);
+
+      if (n == 1) {
+        final x = plotLeft + plotWidth / 2;
+        final v = data[0].clamp(finalMinY, finalMaxY);
+        final y = mapY(v);
+        final fill = Paint()..color = normalPaint.color..style = PaintingStyle.fill;
+        canvas.drawCircle(Offset(x, y), 2.0, fill);
+      }
+
+      canvas.restore();
     }
 
-    drawLine(pitch, paintPitch);
-    drawLine(setPitch, paintSet);
+    // draw set-pitch first (so pitch sits above if overlapping)
+    drawSeries(setPitch, paintSet);
+    drawSeries(pitch, paintPitch);
   }
 
   @override
   bool shouldRepaint(covariant _TelemetryPainter oldDelegate) {
-    return oldDelegate.pitch != pitch || oldDelegate.setPitch != setPitch;
+    return oldDelegate.pitch != pitch || oldDelegate.setPitch != setPitch || oldDelegate.minY != minY || oldDelegate.maxY != maxY;
   }
 }
 
@@ -113,8 +170,10 @@ class _TelemetryPainter extends CustomPainter {
 class ControlChart extends StatelessWidget {
   final List<double> uBuffer;
   final String title;
+  final double? minY;
+  final double? maxY;
 
-  const ControlChart({Key? key, required this.uBuffer, this.title = ''}) : super(key: key);
+  const ControlChart({Key? key, required this.uBuffer, this.title = '', this.minY, this.maxY}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -131,7 +190,7 @@ class ControlChart extends StatelessWidget {
             builder: (context, constraints) {
               return CustomPaint(
                 size: Size(constraints.maxWidth, constraints.maxHeight),
-                painter: _ControlPainter(u: uBuffer),
+                painter: _ControlPainter(u: uBuffer, minY: minY, maxY: maxY),
               );
             },
           ),
@@ -143,45 +202,81 @@ class ControlChart extends StatelessWidget {
 
 class _ControlPainter extends CustomPainter {
   final List<double> u;
+  final double? minY;
+  final double? maxY;
+  static const double leftPadding = 44.0;
 
-  _ControlPainter({required this.u});
+  _ControlPainter({required this.u, this.minY, this.maxY});
 
   @override
   void paint(Canvas canvas, Size size) {
     final paintGrid = Paint()..color = Colors.grey.withOpacity(0.25)..strokeWidth = 1.0;
-    final paintU = Paint()..color = Colors.green..style = PaintingStyle.stroke..strokeWidth = 2.0;
+  final paintU = Paint()..color = Colors.green..style = PaintingStyle.stroke..strokeWidth = 2.0;
 
-    const gridLines = 3;
-    for (var i = 0; i <= gridLines; i++) {
-      final y = size.height * i / gridLines;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paintGrid);
+    final plotLeft = leftPadding;
+    final plotWidth = size.width - plotLeft;
+    final plotHeight = size.height;
+
+    // draw grid and left labels
+    const int ticks = 4;
+    final double finalMin = minY ?? -255.0;
+    final double finalMax = maxY ?? 255.0;
+    double range = finalMax - finalMin;
+    if (range.abs() < 1e-6) range = 1.0;
+
+    final textStyle = TextStyle(color: Colors.black87, fontSize: 12);
+    for (var t = 0; t <= ticks; t++) {
+      final dy = t / ticks;
+      final y = plotHeight * dy;
+      final value = finalMax - dy * range;
+      canvas.drawLine(Offset(plotLeft, y), Offset(size.width, y), paintGrid);
+      final tp = TextPainter(text: TextSpan(text: value.toStringAsFixed(0), style: textStyle), textDirection: TextDirection.ltr);
+      tp.layout();
+      tp.paint(canvas, Offset(plotLeft - tp.width - 6, y - tp.height / 2));
     }
 
-    double minY = 0.0;
-    double maxY = 255.0;
-    if (u.isNotEmpty) {
-      final minData = u.reduce((a, b) => a < b ? a : b);
-      final maxData = u.reduce((a, b) => a > b ? a : b);
-      minY = minData < minY ? minData : minY;
-      maxY = maxData > maxY ? maxData : maxY;
-      if ((maxY - minY).abs() < 1e-6) maxY = minY + 1.0;
-    }
+  if (u.isEmpty) return;
 
-    if (u.isEmpty) return;
-    final path = Path();
     final n = u.length;
-    for (var i = 0; i < n; i++) {
-      final x = (n == 1) ? size.width / 2 : (i * size.width / (n - 1));
-      final y = size.height - ((u[i] - minY) / (maxY - minY)) * size.height;
-      if (i == 0) path.moveTo(x, y);
-      else path.lineTo(x, y);
+    // highlight out-of-range by drawing translucent red bands at the top/bottom
+    final hasAbove = u.any((v) => v > finalMax);
+    final hasBelow = u.any((v) => v < finalMin);
+    final bandPaint = Paint()..color = Colors.red.withOpacity(0.12)..style = PaintingStyle.fill;
+    const bandFrac = 0.07;
+    if (hasAbove) {
+      canvas.drawRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight * bandFrac), bandPaint);
     }
-    canvas.drawPath(path, paintU);
+    if (hasBelow) {
+      canvas.drawRect(Rect.fromLTWH(plotLeft, plotHeight * (1 - bandFrac), plotWidth, plotHeight * bandFrac), bandPaint);
+    }
+
+    double mapY(double v) => plotHeight - ((v - finalMin) / range) * plotHeight;
+
+    // clip and draw the series clamped to the range so the lines don't leave the plot
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight));
+    for (var i = 1; i < n; i++) {
+      final x0 = plotLeft + ((i - 1) * plotWidth / (n - 1));
+      final x1 = plotLeft + ((i) * plotWidth / (n - 1));
+      final v0 = u[i - 1].clamp(finalMin, finalMax);
+      final v1 = u[i].clamp(finalMin, finalMax);
+      final y0 = mapY(v0);
+      final y1 = mapY(v1);
+      canvas.drawLine(Offset(x0, y0), Offset(x1, y1), paintU);
+    }
+    if (n == 1) {
+      final x = plotLeft + plotWidth / 2;
+      final v = u[0].clamp(finalMin, finalMax);
+      final y = mapY(v);
+      final fill = Paint()..color = paintU.color..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(x, y), 2.0, fill);
+    }
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _ControlPainter oldDelegate) {
-    return oldDelegate.u != u;
+    return oldDelegate.u != u || oldDelegate.minY != minY || oldDelegate.maxY != maxY;
   }
 }
 
@@ -309,10 +404,15 @@ class _RobotControlPageState extends State<RobotControlPage> {
 
   Widget _buildTelemetryCharts() {
     // Lightweight charts using CustomPaint so we avoid fl_chart SDK issues.
+    // use screen-relative heights so the UI adapts to different device sizes
+    final screenH = MediaQuery.of(context).size.height;
+    final pitchChartH = screenH * 0.35;
+    final controlChartH = screenH * 0.25;
+
     return Column(
       children: [
         SizedBox(
-          height: 160,
+          height: pitchChartH,
           child: Card(
             margin: const EdgeInsets.symmetric(vertical: 4),
             child: Padding(
@@ -321,17 +421,19 @@ class _RobotControlPageState extends State<RobotControlPage> {
                 pitchBuffer: _pitchBuffer,
                 setPitchBuffer: _setPitchBuffer,
                 title: 'Pitch vs Set Pitch',
+                minY: 150.0,
+                maxY: 200.0,
               ),
             ),
           ),
         ),
         SizedBox(
-          height: 120,
+          height: controlChartH,
           child: Card(
             margin: const EdgeInsets.symmetric(vertical: 4),
             child: Padding(
               padding: const EdgeInsets.all(8.0),
-              child: ControlChart(uBuffer: _uBuffer, title: 'Control Signal (0-255)'),
+              child: ControlChart(uBuffer: _uBuffer, title: 'Control Signal (-255 to 255)', minY: -255.0, maxY: 255.0),
             ),
           ),
         ),

@@ -63,7 +63,7 @@ static volatile move_cmd_t manual_move = MOVE_STOP;
 // ============================================================================
 #if PYTHON_PLOTTER_DEBUG
 
-#define DESTINATION_IP "192.168.1.14" //14 - pc //161 - phone
+#define DESTINATION_IP "192.168.1.161" //14 - pc //161 - phone
 #define DESTINATION_PORT 7777
 #define LISTEN_PORT 7778
 #define UDP_MSG_MAX_LEN 128
