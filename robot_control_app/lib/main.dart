@@ -274,7 +274,8 @@ class _RobotControlPageState extends State<RobotControlPage> {
   // Networking
   RawDatagramSocket? _socket;
   final int listenPort = 7777;
-  String espIp = '192.168.1.47';
+  // String espIp = '192.168.1.47';
+  String espIp = '192.168.4.1';
   int espPort = 7778;
   bool _udpAvailable = true;
 
@@ -315,6 +316,9 @@ class _RobotControlPageState extends State<RobotControlPage> {
   List<List<dynamic>> csvData = [];
 
   StreamSubscription<RawSocketEvent>? _socketSub;
+  // connection state
+  bool isConnected = false;
+  bool _connectDialogShown = false;
 
   @override
   void initState() {
@@ -328,6 +332,48 @@ class _RobotControlPageState extends State<RobotControlPage> {
     } else {
       _startUdpListener();
     }
+
+    // After the first frame, if we're not connected show the connect dialog once
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_udpAvailable) return; // don't show on web
+      if (!_connectDialogShown && !isConnected) {
+        _connectDialogShown = true;
+        _showConnectDialog();
+      }
+    });
+  }
+
+  Future<void> _showConnectDialog() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Connect to Robot'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('ESP IP: $espIp'),
+              Text('ESP Port: $espPort'),
+              const SizedBox(height: 8),
+              const Text('Check if you are connected to the SBR_AP wifi network and click Connect below so the robot can register this device and start sending telemetry.'),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () {
+                _sendConnectCommand();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Connect'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _startUdpListener() async {
@@ -506,6 +552,12 @@ class _RobotControlPageState extends State<RobotControlPage> {
     _send('MOVE:$direction\n');
   }
 
+  void _sendConnectCommand() {
+    _send('CONNECT\n');
+    setState(() => isConnected = true);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('CONNECT sent')));
+  }
+
   Future<void> _saveCsvToFile() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
@@ -618,7 +670,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
         Tab(text: 'Telemetry'),
       Tab(text: 'Parameters'),
       Tab(text: 'Manual'),
-            Tab(text: 'Errors'),
+            Tab(text: 'Config & Errors'),
           ]),
         ),
         body: TabBarView(children: [
@@ -785,7 +837,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
           Padding(
             padding: const EdgeInsets.all(12.0),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('I2C Error Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text('Config & Errors', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Text('Total Errors: $totalErrors'),
               Text('Last Error Time: $lastErrorTime'),
@@ -811,6 +863,15 @@ class _RobotControlPageState extends State<RobotControlPage> {
                   ),
                 )
               ]),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  ElevatedButton(
+                    onPressed: _sendConnectCommand,
+                    child: const Text('Connect to Robot'),
+                  ),
+                ],
+              ),
             ]),
           ),
         ]),

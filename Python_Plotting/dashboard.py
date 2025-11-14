@@ -14,7 +14,8 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
 sock.settimeout(0.01)
 
-ESP_IP = "192.168.1.47"
+# ESP_IP = "192.168.1.47"
+ESP_IP = "192.168.4.1"
 ESP_PORT = 7778
 send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -311,6 +312,15 @@ def get_pid_values():
         print(f"Error sending GET command: {e}")
 
 
+def send_connect():
+    cmd = "CONNECT\n"
+    print(f"Sending CONNECT to {ESP_IP}:{ESP_PORT}")
+    try:
+        send_sock.sendto(cmd.encode(), (ESP_IP, ESP_PORT))
+        print("CONNECT command sent")
+    except Exception as e:
+        print(f"Error sending CONNECT command: {e}")
+
 def send_move_command(direction):
     """Send a manual move command to the ESP32.
     direction should be one of: FORWARD, BACKWARD, LEFT, RIGHT, STOP
@@ -440,6 +450,10 @@ send_button.pack(side=tk.LEFT, padx=5)
 get_button = tk.Button(send_button_frame, text="Get PID Values", command=get_pid_values, 
                       bg="lightblue", font=("Arial", 12, "bold"), padx=20, pady=5)
 get_button.pack(side=tk.LEFT, padx=5)
+
+connect_button = tk.Button(send_button_frame, text="Connect to ESP", command=send_connect,
+                           bg="orange", font=("Arial", 12, "bold"), padx=20, pady=5)
+connect_button.pack(side=tk.LEFT, padx=5)
 
 # Manual movement controls (press to start, release to stop)
 move_frame = tk.Frame(root)

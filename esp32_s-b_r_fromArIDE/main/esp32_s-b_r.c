@@ -567,18 +567,22 @@ void udp_receiver_task(void *arg)
 
     char addr_str[128];
     inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr.s_addr, addr_str, sizeof(addr_str) - 1);
-
-    // Remember the last sender as our destination for outgoing UDP messages
-    dest_addr = source_addr;
-    dest_addr.sin_port = htons(DESTINATION_PORT); // ensure our send port
-    dest_addr_known = true;
-
     ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
-        if (strstr(rx_buffer, "MOVE:") != NULL) {
-            parse_move_command(rx_buffer);
-        } else {
-            parse_pid_command(rx_buffer);
-        }
+
+
+    if (strstr(rx_buffer, "CONNECT") != NULL) {
+        dest_addr = source_addr;
+        dest_addr.sin_port = htons(DESTINATION_PORT);
+        dest_addr_known = true;
+        ESP_LOGI(TAG, "CONNECT received — remote set to %s, sending INIT", addr_str);
+        send_initial_pid_values();
+    } else if (!dest_addr_known) {
+        ESP_LOGI(TAG, "Ignoring packet before CONNECT from %s", addr_str);
+    }else if (strstr(rx_buffer, "MOVE:") != NULL) {
+        parse_move_command(rx_buffer);
+    } else {
+        parse_pid_command(rx_buffer);
+    }
     }
 }
 
