@@ -166,7 +166,7 @@ def parse_error_message(message):
 def parse_init_message(message):
     """Parse initial PID values from ESP32"""
     try:
-        # np Parse: "INIT:P=2.500,I=0.000001,D=0.000,MP=0.0"
+        # np Parse: "INIT:P=2.500,I=0.000001,D=0.000,UPRIGHT=177.0"
         parts = message.split(":")
         if len(parts) >= 2:
             pid_info = parts[1]
@@ -203,8 +203,19 @@ def parse_init_message(message):
                 d_scale.set(d_val)
                 d_entry.delete(0, tk.END)
                 d_entry.insert(0, f"{d_val:.1f}")
+
+            upright_pos = pid_info.find("UPRIGHT=")
+            if upright_pos != -1:
+                upright_end = pid_info.find(",", upright_pos)
+                if upright_end == -1:
+                    upright_end = len(pid_info)
+                upright_val = float(pid_info[upright_pos+8:upright_end])
+                pid_values['UPRIGHT'] = upright_val
+                upright_scale.set(upright_val)
+                upright_entry.delete(0, tk.END)
+                upright_entry.insert(0, f"{upright_val:.1f}")
             
-            print(f"Received PID values - P:{pid_values['P']}, I:{pid_values['I']}, D:{pid_values['D']}")
+            print(f"Received PID values - P:{pid_values['P']}, I:{pid_values['I']}, D:{pid_values['D']}, UPRIGHT:{pid_values['UPRIGHT']}")
                 
     except Exception as e:
         print(f"Error parsing init message: {e}")
@@ -253,10 +264,10 @@ def reset_error_display():
     except:
         pass
 
-pid_values = {'P': 0.0, 'I': 900000.0, 'D': 0.0}
+pid_values = {'P': 0.0, 'I': 900000.0, 'D': 0.0, 'UPRIGHT': 177.0}
 
 def send_pid_values():
-    cmd = f"P={pid_values['P']},I={pid_values['I']},D={pid_values['D']}\n"
+    cmd = f"P={pid_values['P']},I={pid_values['I']},D={pid_values['D']},UPRIGHT={pid_values['UPRIGHT']}\n"
     print(f"Sending command '{cmd.strip()}' to {ESP_IP}:{ESP_PORT}")
     try:
         send_sock.sendto(cmd.encode(), (ESP_IP, ESP_PORT))
@@ -279,7 +290,13 @@ def send_d_gain(val):
     d_entry.delete(0, tk.END)
     d_entry.insert(0, f"{float(val):.1f}")
 
-# send_min_pwm removed (ESP32 no longer uses MP)
+def send_upright(val):
+    try:
+        pid_values['UPRIGHT'] = float(val)
+    except Exception:
+        pid_values['UPRIGHT'] = 177.0
+    upright_entry.delete(0, tk.END)
+    upright_entry.insert(0, f"{float(val):.1f}")
 
 def send_pid_button_click():
     send_pid_values()
@@ -333,7 +350,15 @@ def on_d_entry_change(event):
     except ValueError:
         pass
 
-# MP/MT entry handlers removed (ESP32 no longer uses MP/MT)
+def on_upright_entry_change(event):
+    try:
+        val = float(upright_entry.get())
+        if 150.0 <= val <= 200.0:
+            upright_scale.set(val)
+            pid_values['UPRIGHT'] = val
+    except ValueError:
+        pass
+
 
 root = tk.Tk()
 root.title("PID Control")
@@ -392,7 +417,17 @@ d_scale.pack()
 d_entry = tk.Entry(d_frame, width=8)
 d_entry.pack(pady=5)
 
-# (Min PWM and Motor Threshold controls removed - handled on ESP32)
+# Upright pitch control (UPRIGHT)
+upright_frame = tk.Frame(pid_frame)
+upright_frame.pack(side=tk.LEFT, padx=10)
+tk.Label(upright_frame, text="Upright Pitch").pack()
+
+upright_scale = tk.Scale(upright_frame, from_=200.0, to=150.0, resolution=0.1, orient=tk.VERTICAL, command=send_upright)
+upright_scale.pack()
+upright_scale.set(pid_values.get('UPRIGHT', 0.0))
+upright_entry = tk.Entry(upright_frame, width=8)
+upright_entry.pack(pady=5)
+
 
 # Send PID button
 send_button_frame = tk.Frame(root)
@@ -480,10 +515,13 @@ i_entry.bind('<Return>', on_i_entry_change)
 i_entry.bind('<FocusOut>', on_i_entry_change)
 d_entry.bind('<Return>', on_d_entry_change)
 d_entry.bind('<FocusOut>', on_d_entry_change)
+upright_entry.bind('<Return>', on_upright_entry_change)
+upright_entry.bind('<FocusOut>', on_upright_entry_change)
 
 p_entry.insert(0, "2.5")
 i_entry.insert(0, "900000.0")
 d_entry.insert(0, "0.0")
+upright_entry.insert(0, "177.0")
 
 canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.draw()

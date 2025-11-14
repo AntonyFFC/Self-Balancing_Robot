@@ -5,6 +5,7 @@ import 'dart:io' show RawDatagramSocket, InternetAddress, File, RawSocketEvent;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'upright_control.dart';
 
 void main() {
   runApp(const MyApp());
@@ -219,7 +220,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
   Map<String, bool> pidEnabled = {'P': true, 'I': true, 'D': true};
   final Map<String, double> pidOffValues = {'P': 0.0, 'I': 900000.0, 'D': 0.0};
 
-  Map<String, double> pidValues = {'P': 2.5, 'I': 900000.0, 'D': 0.0};
+  Map<String, double> pidValues = {'P': 2.5, 'I': 900000.0, 'D': 0.0, 'UPRIGHT': 177.0};
 
   Map<String, int> errorCounts = {
     'READ_TIMEOUT': 0,
@@ -300,7 +301,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
         }
 
         if (saveCsv) {
-          csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['P'], pidValues['I'], pidValues['D']]);
+          csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['P'], pidValues['I'], pidValues['D'], pidValues['UPRIGHT']]);
         }
       });
     }
@@ -339,7 +340,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   void _parseInitMessage(String message) {
-    // Example: INIT:P=2.500,I=0.000001,D=0.000,MP=0.0
+    // Example: INIT:P=2.500,I=0.000001,D=0.000,UPRIGHT=177.000
     try {
       final parts = message.split(':');
       if (parts.length < 2) return;
@@ -350,13 +351,14 @@ class _RobotControlPageState extends State<RobotControlPage> {
           final kv = pair.split('=');
           final k = kv[0].trim();
           final v = double.tryParse(kv[1]) ?? 0.0;
-          if (k == 'P' || k == 'I' || k == 'D') map[k] = v;
+          if (k == 'P' || k == 'I' || k == 'D' || k == 'UPRIGHT') map[k] = v;
         }
       }
       setState(() {
         pidValues['P'] = map['P'] ?? pidValues['P']!;
         pidValues['I'] = map['I'] ?? pidValues['I']!;
         pidValues['D'] = map['D'] ?? pidValues['D']!;
+        pidValues['UPRIGHT'] = map['UPRIGHT'] ?? pidValues['UPRIGHT']!;
       });
     } catch (e) {
       debugPrint('Error parsing INIT: $e');
@@ -413,16 +415,16 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   void _sendPidValues() {
-    final cmd = 'P=${pidValues['P']},I=${pidValues['I']},D=${pidValues['D']}\\n';
+    final cmd = 'P=${pidValues['P']},I=${pidValues['I']},D=${pidValues['D']},UPRIGHT=${pidValues['UPRIGHT']}\n';
     _send(cmd);
   }
 
   void _getPidValues() {
-    _send('GET\\n');
+    _send('GET\n');
   }
 
   void _sendMoveCommand(String direction) {
-    _send('MOVE:$direction\\n');
+    _send('MOVE:$direction\n');
   }
 
   Future<void> _saveCsvToFile() async {
@@ -431,7 +433,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
       final fname = 'pid_data_${DateTime.now().toIso8601String().replaceAll(':', '-')}.csv';
       final file = File('${dir.path}/$fname');
       final sink = file.openWrite();
-      sink.writeln('Time,Pitch,SetPitch,ControlSignal,P,I,D');
+  sink.writeln('Time,Pitch,SetPitch,ControlSignal,P,I,D,UPRIGHT');
       for (final row in csvData) {
         sink.writeln(row.join(','));
       }
@@ -535,9 +537,9 @@ class _RobotControlPageState extends State<RobotControlPage> {
         appBar: AppBar(
           title: const Text('Robot Control'),
           bottom: const TabBar(tabs: [
-            Tab(text: 'Telemetry'),
-            Tab(text: 'PID'),
-            Tab(text: 'Manual'),
+        Tab(text: 'Telemetry'),
+      Tab(text: 'Parameters'),
+      Tab(text: 'Manual'),
             Tab(text: 'Errors'),
           ]),
         ),
@@ -566,14 +568,14 @@ class _RobotControlPageState extends State<RobotControlPage> {
               // Charts
               _buildTelemetryCharts(),
               const SizedBox(height: 8),
-              Row(children: [
-                ElevatedButton(onPressed: saveCsv ? _saveCsvToFile : null, child: const Text('Save CSV Now')),
-                const SizedBox(width: 12),
-                Row(children: [
-                  const Text('Save CSV'),
-                  Switch(value: saveCsv, onChanged: (v) => setState(() => saveCsv = v)),
-                ])
-              ])
+                  Row(children: [
+                    ElevatedButton(onPressed: saveCsv ? _saveCsvToFile : null, child: const Text('Save CSV Now')),
+                    const SizedBox(width: 12),
+                    Row(children: [
+                      const Text('Save CSV'),
+                      Switch(value: saveCsv, onChanged: (v) => setState(() => saveCsv = v)),
+                    ])
+                  ])
             ]),
           ),
 
@@ -593,6 +595,18 @@ class _RobotControlPageState extends State<RobotControlPage> {
                         _buildPidControl('I Gain', 'I', 0.0, 900000.0, 1.0),
                         const SizedBox(height: 12),
                         _buildPidControl('D Gain', 'D', 0.0, 5.0, 0.01),
+                        const SizedBox(height: 12),
+                        UprightControl(
+                          label: 'Upright Pitch',
+                          value: pidValues['UPRIGHT']!,
+                          min: 150.0,
+                          max: 200.0,
+                          onChanged: (v) {
+                            final snapped = (v * 10).round() / 10.0;
+                            setState(() => pidValues['UPRIGHT'] = snapped.clamp(150.0, 200.0));
+                          },
+                          onSubmitted: (v) => setState(() => pidValues['UPRIGHT'] = v.clamp(150.0, 200.0)),
+                        ),
                       ],
                     ),
                   ),
@@ -600,14 +614,14 @@ class _RobotControlPageState extends State<RobotControlPage> {
 
                 // Buttons pinned to the end (bottom-right) — use Wrap to avoid overflow on narrow screens
                 const SizedBox(height: 12),
-                Wrap(
-                  alignment: WrapAlignment.end,
-                  spacing: 12,
-                  children: [
-                    ElevatedButton(onPressed: _sendPidValues, child: const Text('Send PID Params')),
-                    ElevatedButton(onPressed: _getPidValues, child: const Text('Get PID Params')),
-                  ],
-                )
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 12,
+                        children: [
+                          ElevatedButton(onPressed: _sendPidValues, child: const Text('Send Params')),
+                          ElevatedButton(onPressed: _getPidValues, child: const Text('Get Params')),
+                        ],
+                      )
               ],
             ),
           ),

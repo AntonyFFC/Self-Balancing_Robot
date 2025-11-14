@@ -26,7 +26,7 @@
 
 #define DRIVE_ANGLE_OFFSET 5.0f
 #define SPEED_SLEW_RATE 1.0f
-#define UPRIGHT_PITCH 177.0f
+static float upright_pitch = 177.0f;
 #define TURN_OFFSET 70.0f
 #define TURN_SLEW_RATE 10.0f
 
@@ -37,7 +37,7 @@ TaskHandle_t mpu_task_handle = NULL;
 static float pid_K = 9.0f;
 static float pid_Ti = 900000.0f;
 static float pid_Td = 0.0f;
-static float setPitch = UPRIGHT_PITCH, u = 0.0f;
+static float setPitch = 177.0f, u = 0.0f;
 volatile float pitch = 0.0f;
 
 static volatile bool mpuInterrupt = false;
@@ -63,7 +63,7 @@ static volatile move_cmd_t manual_move = MOVE_STOP;
 // ============================================================================
 #if PYTHON_PLOTTER_DEBUG
 
-#define DESTINATION_IP "192.168.1.14"
+#define DESTINATION_IP "192.168.1.14" //14 - pc //161 - phone
 #define DESTINATION_PORT 7777
 #define LISTEN_PORT 7778
 #define UDP_MSG_MAX_LEN 128
@@ -156,14 +156,15 @@ static void udp_send_data(const char *data) {
 
 void send_initial_pid_values(void) {
     char init_msg[UDP_MSG_MAX_LEN];
-    snprintf(init_msg, sizeof(init_msg), "INIT:P=%.3f,I=%.6f,D=%.3f\n", 
-             pid_K, pid_Ti, pid_Td);
+    snprintf(init_msg, sizeof(init_msg), "INIT:P=%.3f,I=%.6f,D=%.3f,UPRIGHT=%.3f\n", 
+             pid_K, pid_Ti, pid_Td, upright_pitch);
     udp_send_data(init_msg);
     ESP_LOGI(TAG, "Sent initial PID values: %s", init_msg);
 }
 
 void parse_pid_command(const char* cmd) {
     float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
+    float new_up = upright_pitch;
     bool updated = false;
 
     if (strstr(cmd, "GET") != NULL) {
@@ -189,13 +190,34 @@ void parse_pid_command(const char* cmd) {
         new_D = atof(d_pos + 2);
         updated = true;
     }
+
+    char* up_pos = strstr(cmd, "UPRIGHT=");
+    if (up_pos == NULL) up_pos = strstr(cmd, "UPRIGHT:");
+    if (up_pos != NULL) {
+        /* find the separator (= or :) and parse after it */
+        char *sep = strchr(up_pos, '=');
+        if (sep == NULL) sep = strchr(up_pos, ':');
+        if (sep != NULL) {
+            new_up = atof(sep + 1);
+            updated = true;
+        }
+    }
     
     if (updated) {
         pid_K = new_P;
         pid_Ti = new_I;
         pid_Td = new_D;
-        ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f", 
-                 pid_K, pid_Ti, pid_Td);
+        if (new_up != upright_pitch) {
+            upright_pitch = new_up;
+            if (xSemaphoreTake(setPitch_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                setPitch = upright_pitch;
+                xSemaphoreGive(setPitch_mutex);
+            } else {
+                ESP_LOGW(TAG, "Could not obtain setPitch_mutex to update upright pitch");
+            }
+        }
+        ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f, Upright=%.3f", 
+                 pid_K, pid_Ti, pid_Td, upright_pitch);
     }
 }
 
@@ -409,18 +431,18 @@ void regulator_task(void *arg)
 
         if (local_move == MOVE_STOP)
         {
-            local_setPitch = UPRIGHT_PITCH;
+            local_setPitch = upright_pitch;
             turnOffset = 0.0f;
         } else if (local_move == MOVE_FORWARD) {
-            update_ramped_speed(&local_setPitch, UPRIGHT_PITCH - DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+            update_ramped_speed(&local_setPitch, upright_pitch - DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_BACKWARD) {
-            update_ramped_speed(&local_setPitch, UPRIGHT_PITCH + DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+            update_ramped_speed(&local_setPitch, upright_pitch + DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_LEFT) {
             update_ramped_turn(&turnOffset, -TURN_OFFSET, TURN_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
-            local_setPitch = UPRIGHT_PITCH;
+            local_setPitch = upright_pitch;
         } else if (local_move == MOVE_RIGHT) {
             update_ramped_turn(&turnOffset, TURN_OFFSET, TURN_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
-            local_setPitch = UPRIGHT_PITCH;
+            local_setPitch = upright_pitch;
         }
         
         float local_u = PID(local_pitch, local_setPitch);
