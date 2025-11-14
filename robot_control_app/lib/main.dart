@@ -65,7 +65,6 @@ class _TelemetryPainter extends CustomPainter {
   final double? minY;
   final double? maxY;
 
-  // reserve some left padding for y-axis labels
   static const double leftPadding = 44.0;
 
   _TelemetryPainter({required this.pitch, required this.setPitch, this.minY, this.maxY});
@@ -76,12 +75,9 @@ class _TelemetryPainter extends CustomPainter {
   final paintPitch = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 2.0;
   final paintSet = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 2.0;
 
-  // compute drawing rect that leaves room for left axis labels
   final plotLeft = leftPadding;
   final plotWidth = size.width - plotLeft;
   final plotHeight = size.height;
-
-    // (grid lines are drawn with the tick loop below so remove the earlier full-width grid)
 
     final combined = <double>[];
     combined.addAll(pitch);
@@ -89,32 +85,27 @@ class _TelemetryPainter extends CustomPainter {
     double dataMin = combined.isNotEmpty ? combined.reduce((a, b) => a < b ? a : b) : 0.0;
     double dataMax = combined.isNotEmpty ? combined.reduce((a, b) => a > b ? a : b) : 1.0;
 
-    // use provided fixed range if available else fall back to data range
-    final double finalMinY = (minY ?? dataMin) - 0.0; // no extra padding for fixed ranges
+    final double finalMinY = (minY ?? dataMin) - 0.0;
     final double finalMaxY = (maxY ?? dataMax) + 0.0;
     double range = finalMaxY - finalMinY;
     if (range.abs() < 1e-6) range = 1.0;
 
-    // draw left axis ticks and labels
     const int ticks = 4;
     final textStyle = TextStyle(color: Colors.black87, fontSize: 12);
     for (var t = 0; t <= ticks; t++) {
       final dy = t / ticks;
       final y = plotHeight * dy;
       final value = finalMaxY - dy * range;
-      // thin grid
       canvas.drawLine(Offset(plotLeft, y), Offset(size.width, y), paintGrid);
-      // label
       final tp = TextPainter(text: TextSpan(text: value.toStringAsFixed(1), style: textStyle), textDirection: TextDirection.ltr);
       tp.layout();
       tp.paint(canvas, Offset(plotLeft - tp.width - 6, y - tp.height / 2));
     }
 
-    // highlight out-of-range by drawing translucent red bands at the top/bottom
-    final hasAbove = (pitch.any((v) => v > finalMaxY) || setPitch.any((v) => v > finalMaxY));
-    final hasBelow = (pitch.any((v) => v < finalMinY) || setPitch.any((v) => v < finalMinY));
+  final hasAbove = (pitch.isNotEmpty && pitch.last > finalMaxY) || (setPitch.isNotEmpty && setPitch.last > finalMaxY);
+  final hasBelow = (pitch.isNotEmpty && pitch.last < finalMinY) || (setPitch.isNotEmpty && setPitch.last < finalMinY);
     final bandPaint = Paint()..color = Colors.red.withOpacity(0.12)..style = PaintingStyle.fill;
-    const bandFrac = 0.07; // band height fraction of plot
+    const bandFrac = 0.07;
     if (hasAbove) {
       canvas.drawRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight * bandFrac), bandPaint);
     }
@@ -122,21 +113,18 @@ class _TelemetryPainter extends CustomPainter {
       canvas.drawRect(Rect.fromLTWH(plotLeft, plotHeight * (1 - bandFrac), plotWidth, plotHeight * bandFrac), bandPaint);
     }
 
-    // helper to map data value to canvas y inside plot area
     double mapY(double v) => plotHeight - ((v - finalMinY) / range) * plotHeight;
 
     void drawSeries(List<double> data, Paint normalPaint) {
       if (data.isEmpty) return;
       final n = data.length;
 
-      // clip lines so they never draw outside the plot area
       canvas.save();
       canvas.clipRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight));
 
       for (var i = 1; i < n; i++) {
         final x0 = plotLeft + ((i - 1) * plotWidth / (n - 1));
         final x1 = plotLeft + ((i) * plotWidth / (n - 1));
-        // clamp values to the visible range so lines stop at the edge rather than drawing outside
         final v0 = data[i - 1].clamp(finalMinY, finalMaxY);
         final v1 = data[i].clamp(finalMinY, finalMaxY);
         final y0 = mapY(v0);
@@ -155,7 +143,6 @@ class _TelemetryPainter extends CustomPainter {
       canvas.restore();
     }
 
-    // draw set-pitch first (so pitch sits above if overlapping)
     drawSeries(setPitch, paintSet);
     drawSeries(pitch, paintPitch);
   }
@@ -166,7 +153,6 @@ class _TelemetryPainter extends CustomPainter {
   }
 }
 
-// Simple single-line control chart for u values.
 class ControlChart extends StatelessWidget {
   final List<double> uBuffer;
   final String title;
@@ -217,7 +203,6 @@ class _ControlPainter extends CustomPainter {
     final plotWidth = size.width - plotLeft;
     final plotHeight = size.height;
 
-    // draw grid and left labels
     const int ticks = 4;
     final double finalMin = minY ?? -255.0;
     final double finalMax = maxY ?? 255.0;
@@ -238,9 +223,8 @@ class _ControlPainter extends CustomPainter {
   if (u.isEmpty) return;
 
     final n = u.length;
-    // highlight out-of-range by drawing translucent red bands at the top/bottom
-    final hasAbove = u.any((v) => v > finalMax);
-    final hasBelow = u.any((v) => v < finalMin);
+  final hasAbove = (u.isNotEmpty && u.last > finalMax);
+  final hasBelow = (u.isNotEmpty && u.last < finalMin);
     final bandPaint = Paint()..color = Colors.red.withOpacity(0.12)..style = PaintingStyle.fill;
     const bandFrac = 0.07;
     if (hasAbove) {
@@ -252,7 +236,6 @@ class _ControlPainter extends CustomPainter {
 
     double mapY(double v) => plotHeight - ((v - finalMin) / range) * plotHeight;
 
-    // clip and draw the series clamped to the range so the lines don't leave the plot
     canvas.save();
     canvas.clipRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight));
     for (var i = 1; i < n; i++) {
@@ -340,8 +323,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
     _espPortController = TextEditingController(text: espPort.toString());
 
     if (kIsWeb) {
-      // dart:io (RawDatagramSocket / UDP) isn't supported on web builds.
-      // Inform the UI and disable UDP functionality.
       _udpAvailable = false;
       debugPrint('UDP (RawDatagramSocket) unavailable on Web; run on a device/emulator.');
     } else {
@@ -385,7 +366,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
         setPitch = double.tryParse(parts[1]) ?? setPitch;
         controlSignal = double.tryParse(parts[2]) ?? controlSignal;
 
-        // append to rolling buffers
   _pitchBuffer.add(pitch);
   _setPitchBuffer.add(setPitch);
   _uBuffer.add(controlSignal);
@@ -403,8 +383,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   Widget _buildTelemetryCharts() {
-    // Lightweight charts using CustomPaint so we avoid fl_chart SDK issues.
-    // use screen-relative heights so the UI adapts to different device sizes
     final screenH = MediaQuery.of(context).size.height;
     final pitchChartH = screenH * 0.35;
     final controlChartH = screenH * 0.25;
@@ -433,7 +411,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
             margin: const EdgeInsets.symmetric(vertical: 4),
             child: Padding(
               padding: const EdgeInsets.all(8.0),
-              child: ControlChart(uBuffer: _uBuffer, title: 'Control Signal (-255 to 255)', minY: -255.0, maxY: 255.0),
+              child: ControlChart(uBuffer: _uBuffer, title: 'Control Signal', minY: -255.0, maxY: 255.0),
             ),
           ),
         ),
@@ -506,7 +484,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
       }
 
       final data = utf8.encode(cmd);
-      // InternetAddress is not supported on web; guarded by _udpAvailable
       final ip = InternetAddress(espIp);
       _socket?.send(data, ip, espPort);
       debugPrint('Sent: $cmd to $espIp:$espPort');
@@ -618,7 +595,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
               },
             ),
           ] else ...[
-            // show OFF indicator and the enforced value beneath
             Padding(
               padding: const EdgeInsets.only(top: 6.0, bottom: 6.0),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -661,9 +637,15 @@ class _RobotControlPageState extends State<RobotControlPage> {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: Text('Pitch: ${pitch.toStringAsFixed(2)}°', style: const TextStyle(fontSize: 18))),
-                  Expanded(child: Text('Set Pitch: ${setPitch.toStringAsFixed(2)}°', style: const TextStyle(fontSize: 18))),
-                  Expanded(child: Text('Control: ${controlSignal.toStringAsFixed(1)}', style: const TextStyle(fontSize: 18))),
+                  Expanded(
+                      child: Text('Pitch: ${pitch.toStringAsFixed(2)}°',
+                          style: TextStyle(fontSize: 18, color: Colors.blue))),
+                  Expanded(
+                      child: Text('Set Pitch: ${setPitch.toStringAsFixed(2)}°',
+                          style: TextStyle(fontSize: 18, color: Colors.red))),
+                  Expanded(
+                      child: Text('Control: ${controlSignal.toStringAsFixed(1)}',
+                          style: TextStyle(fontSize: 18, color: Colors.green))),
                 ],
               ),
               const SizedBox(height: 12),
@@ -714,7 +696,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
                   ),
                 ),
 
-                // Buttons pinned to the end (bottom-right) — use Wrap to avoid overflow on narrow screens
                 const SizedBox(height: 12),
                       Wrap(
                         alignment: WrapAlignment.end,
@@ -728,18 +709,16 @@ class _RobotControlPageState extends State<RobotControlPage> {
             ),
           ),
 
-          // Manual Tab (responsive layout to avoid overflow)
+          // Manual Tab
           Padding(
             padding: const EdgeInsets.all(12.0),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final w = constraints.maxWidth;
-                // sizes adapt to available width
                 final double big = w > 420 ? 160 : (w * 0.35).clamp(80, 160);
                 final double mid = w > 420 ? 140 : (w * 0.35).clamp(64, 140);
 
                 Widget buildButton(String label, double size, VoidCallback onDown, VoidCallback onUp) {
-                  // Map arrow glyphs to Icons for consistent sizing
                   IconData? icon;
                   switch (label) {
                     case '↑':
@@ -764,7 +743,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(12),
-                      // onTap is provided so InkWell shows splash/highlight; we use onTapDown/up for press semantics
                       onTap: () {},
                       onTapDown: (_) => onDown(),
                       onTapUp: (_) => onUp(),
@@ -785,11 +763,9 @@ class _RobotControlPageState extends State<RobotControlPage> {
                 return Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Forward button centered
                     Center(child: buildButton('↑', big, () => _sendMoveCommand('FORWARD'), () => _sendMoveCommand('STOP'))),
                     SizedBox(height: 16),
 
-                    // Left / Right row using Expanded so it never overflows
                     Row(
                       children: [
                         Expanded(child: Center(child: buildButton('←', mid, () => _sendMoveCommand('LEFT'), () => _sendMoveCommand('STOP')))),
@@ -799,7 +775,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
                     ),
 
                     const SizedBox(height: 16),
-                    // Backward button centered
                     Center(child: buildButton('↓', big, () => _sendMoveCommand('BACKWARD'), () => _sendMoveCommand('STOP'))),
                   ],
                 );
@@ -807,7 +782,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
             ),
           ),
 
-          // Errors Tab
           Padding(
             padding: const EdgeInsets.all(12.0),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
