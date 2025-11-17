@@ -271,7 +271,6 @@ class RobotControlPage extends StatefulWidget {
 }
 
 class _RobotControlPageState extends State<RobotControlPage> {
-  // Networking
   RawDatagramSocket? _socket;
   final int listenPort = 7777;
   // String espIp = '192.168.1.47';
@@ -283,19 +282,15 @@ class _RobotControlPageState extends State<RobotControlPage> {
   late TextEditingController _espIpController;
   late TextEditingController _espPortController;
 
-  // Data
   double pitch = 0.0;
   double setPitch = 0.0;
   double controlSignal = 0.0;
 
-  // Rolling buffers for charts
   final int _maxSamples = 500;
-  // index counter not currently used; kept for future timestamps if needed
   final List<double> _pitchBuffer = [];
   final List<double> _setPitchBuffer = [];
   final List<double> _uBuffer = [];
 
-  // PID enabled toggles
   Map<String, bool> pidEnabled = {'P': true, 'I': true, 'D': true};
   final Map<String, double> pidOffValues = {'P': 0.0, 'I': 900000.0, 'D': 0.0};
 
@@ -316,9 +311,10 @@ class _RobotControlPageState extends State<RobotControlPage> {
   List<List<dynamic>> csvData = [];
 
   StreamSubscription<RawSocketEvent>? _socketSub;
-  // connection state
   bool isConnected = false;
   bool _connectDialogShown = false;
+  DateTime? _lastReceived;
+  Timer? _heartbeatTimer;
 
   @override
   void initState() {
@@ -333,10 +329,9 @@ class _RobotControlPageState extends State<RobotControlPage> {
       _startUdpListener();
     }
 
-    // After the first frame, if we're not connected show the connect dialog once
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (!_udpAvailable) return; // don't show on web
+      if (!_udpAvailable) return;
       if (!_connectDialogShown && !isConnected) {
         _connectDialogShown = true;
         _showConnectDialog();
@@ -390,6 +385,25 @@ class _RobotControlPageState extends State<RobotControlPage> {
         }
       });
       debugPrint('UDP listener started on port $listenPort');
+      // start heartbeat monitor to detect when no data arrives
+      _heartbeatTimer?.cancel();
+      _heartbeatTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        // if we've never received anything, consider disconnected after a short period
+        final now = DateTime.now();
+        if (_lastReceived == null) {
+          // if more than 3 seconds since listener start with no messages, mark disconnected
+          if (!isConnected) return; // already disconnected
+          // mark disconnected
+          _onDisconnected();
+          return;
+        }
+        final diff = now.difference(_lastReceived!);
+        if (diff.inSeconds >= 3) {
+          if (isConnected) _onDisconnected();
+        } else {
+          if (!isConnected) _onConnected();
+        }
+      });
     } catch (e) {
       debugPrint('Failed to start UDP listener: $e');
     }
@@ -412,6 +426,10 @@ class _RobotControlPageState extends State<RobotControlPage> {
         setPitch = double.tryParse(parts[1]) ?? setPitch;
         controlSignal = double.tryParse(parts[2]) ?? controlSignal;
 
+        // update last received time and mark connected
+        _lastReceived = DateTime.now();
+        if (!isConnected) _onConnected();
+
   _pitchBuffer.add(pitch);
   _setPitchBuffer.add(setPitch);
   _uBuffer.add(controlSignal);
@@ -426,6 +444,25 @@ class _RobotControlPageState extends State<RobotControlPage> {
         }
       });
     }
+  }
+
+  void _onConnected() {
+    setState(() {
+      isConnected = true;
+      _connectDialogShown = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connected — receiving data')));
+  }
+
+  void _onDisconnected() {
+    setState(() {
+      isConnected = false;
+    });
+    if (!_connectDialogShown) {
+      _connectDialogShown = true;
+      _showConnectDialog();
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No data — disconnected')));
   }
 
   Widget _buildTelemetryCharts() {
@@ -579,6 +616,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
 
   @override
   void dispose() {
+    _heartbeatTimer?.cancel();
     _socketSub?.cancel();
     _socket?.close();
     super.dispose();
@@ -665,7 +703,22 @@ class _RobotControlPageState extends State<RobotControlPage> {
       length: 4,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Robot Control'),
+          title: Row(
+            children: [
+              const Text('Robot Control'),
+              const SizedBox(width: 8),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: isConnected ? Colors.green : Colors.red,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(isConnected ? 'Connected' : 'Disconnected', style: const TextStyle(fontSize: 12)),
+            ],
+          ),
           bottom: const TabBar(tabs: [
         Tab(text: 'Telemetry'),
       Tab(text: 'Parameters'),
