@@ -291,10 +291,10 @@ class _RobotControlPageState extends State<RobotControlPage> {
   final List<double> _setPitchBuffer = [];
   final List<double> _uBuffer = [];
 
-  Map<String, bool> pidEnabled = {'P': true, 'I': true, 'D': true};
-  final Map<String, double> pidOffValues = {'P': 0.0, 'I': 900000.0, 'D': 0.0};
+  Map<String, bool> pidEnabled = {'Kp': true, '1/Ti': true, 'Td': true};
+  final Map<String, double> pidOffValues = {'Kp': 0.0, '1/Ti': 0.0, 'Td': 0.0};
 
-  Map<String, double> pidValues = {'P': 2.5, 'I': 900000.0, 'D': 0.0, 'UPRIGHT': 177.0};
+  Map<String, double> pidValues = {'Kp': 2.5, '1/Ti': 0.0, 'Td': 0.0, 'UPRIGHT': 177.0};
 
   Map<String, int> errorCounts = {
     'READ_TIMEOUT': 0,
@@ -385,15 +385,12 @@ class _RobotControlPageState extends State<RobotControlPage> {
         }
       });
       debugPrint('UDP listener started on port $listenPort');
-      // start heartbeat monitor to detect when no data arrives
       _heartbeatTimer?.cancel();
       _heartbeatTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        // if we've never received anything, consider disconnected after a short period
+
         final now = DateTime.now();
         if (_lastReceived == null) {
-          // if more than 3 seconds since listener start with no messages, mark disconnected
-          if (!isConnected) return; // already disconnected
-          // mark disconnected
+          if (!isConnected) return;
           _onDisconnected();
           return;
         }
@@ -426,7 +423,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
         setPitch = double.tryParse(parts[1]) ?? setPitch;
         controlSignal = double.tryParse(parts[2]) ?? controlSignal;
 
-        // update last received time and mark connected
         _lastReceived = DateTime.now();
         if (!isConnected) _onConnected();
 
@@ -440,7 +436,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
         }
 
         if (saveCsv) {
-          csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['P'], pidValues['I'], pidValues['D'], pidValues['UPRIGHT']]);
+          csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['Kp'], pidValues['Ti'], pidValues['Td'], pidValues['UPRIGHT']]);
         }
       });
     }
@@ -514,13 +510,13 @@ class _RobotControlPageState extends State<RobotControlPage> {
           final kv = pair.split('=');
           final k = kv[0].trim();
           final v = double.tryParse(kv[1]) ?? 0.0;
-          if (k == 'P' || k == 'I' || k == 'D' || k == 'UPRIGHT') map[k] = v;
+          if (k == 'Kp' || k == '1/Ti' || k == 'Td' || k == 'UPRIGHT') map[k] = v;
         }
       }
       setState(() {
-        pidValues['P'] = map['P'] ?? pidValues['P']!;
-        pidValues['I'] = map['I'] ?? pidValues['I']!;
-        pidValues['D'] = map['D'] ?? pidValues['D']!;
+        pidValues['Kp'] = map['Kp'] ?? pidValues['Kp']!;
+        pidValues['1/Ti'] = map['1/Ti'] ?? pidValues['1/Ti']!;
+        pidValues['Td'] = map['Td'] ?? pidValues['Td']!;
         pidValues['UPRIGHT'] = map['UPRIGHT'] ?? pidValues['UPRIGHT']!;
       });
     } catch (e) {
@@ -577,7 +573,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   void _sendPidValues() {
-    final cmd = 'P=${pidValues['P']},I=${pidValues['I']},D=${pidValues['D']},UPRIGHT=${pidValues['UPRIGHT']}\n';
+    final cmd = 'Kp=${pidValues['Kp']},1/Ti=${pidValues['1/Ti']},Td=${pidValues['Td']},UPRIGHT=${pidValues['UPRIGHT']}\n';
     _send(cmd);
   }
 
@@ -601,7 +597,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
       final fname = 'pid_data_${DateTime.now().toIso8601String().replaceAll(':', '-')}.csv';
       final file = File('${dir.path}/$fname');
       final sink = file.openWrite();
-  sink.writeln('Time,Pitch,SetPitch,ControlSignal,P,I,D,UPRIGHT');
+  sink.writeln('Time,Pitch,SetPitch,ControlSignal,Kp,1/Ti,Td,UPRIGHT');
       for (final row in csvData) {
         sink.writeln(row.join(','));
       }
@@ -664,8 +660,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
               min: min,
               max: max,
               onChanged: (v) {
-                // snap to nearest 0.1
-                final snapped = (v * 10).round() / 10.0;
+                final snapped = (v / step).round() * step;
                 setState(() => pidValues[key] = snapped.clamp(min, max));
               },
             ),
@@ -779,11 +774,11 @@ class _RobotControlPageState extends State<RobotControlPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _buildPidControl('P Gain', 'P', 0.0, 20.0, 0.01),
+                        _buildPidControl('Kp Constant', 'Kp', 0.0, 20.0, 0.1),
                         const SizedBox(height: 12),
-                        _buildPidControl('I Gain', 'I', 0.0, 900000.0, 1.0),
+                        _buildPidControl('1/Ti Constant', '1/Ti', 0.0, 2.0, 0.01),
                         const SizedBox(height: 12),
-                        _buildPidControl('D Gain', 'D', 0.0, 5.0, 0.01),
+                        _buildPidControl('Td Constant', 'Td', 0.0, 2.0, 0.01),
                         const SizedBox(height: 12),
                         UprightControl(
                           label: 'Upright Pitch',

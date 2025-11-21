@@ -38,7 +38,7 @@ static const char *TAG = "self-balancing-robot";
 TaskHandle_t mpu_task_handle = NULL;
 
 static float pid_K = 9.0f;
-static float pid_Ti = 900000.0f;
+static float pid_1Ti = 0.0f;
 static float pid_Td = 0.0f;
 static float setPitch = 177.0f, u = 0.0f;
 volatile float pitch = 0.0f;
@@ -165,14 +165,14 @@ static void udp_send_data(const char *data) {
 
 void send_initial_pid_values(void) {
     char init_msg[UDP_MSG_MAX_LEN];
-    snprintf(init_msg, sizeof(init_msg), "INIT:P=%.3f,I=%.6f,D=%.3f,UPRIGHT=%.3f\n", 
-             pid_K, pid_Ti, pid_Td, upright_pitch);
+    snprintf(init_msg, sizeof(init_msg), "INIT:Kp=%.3f,1/Ti=%.6f,Td=%.3f,UPRIGHT=%.3f\n", 
+             pid_K, pid_1Ti, pid_Td, upright_pitch);
     udp_send_data(init_msg);
     ESP_LOGI(TAG, "Sent initial PID values: %s", init_msg);
 }
 
 void parse_pid_command(const char* cmd) {
-    float new_P = pid_K, new_I = 1.0f / pid_Ti, new_D = pid_Td;
+    float new_P = pid_K, new_I = pid_1Ti, new_D = pid_Td;
     float new_up = upright_pitch;
     bool updated = false;
 
@@ -181,22 +181,22 @@ void parse_pid_command(const char* cmd) {
         return;
     }
     
-    char* p_pos = strstr(cmd, "P=");
+    char* p_pos = strstr(cmd, "Kp=");
     if (p_pos != NULL) {
-        new_P = atof(p_pos + 2);
+        new_P = atof(p_pos + 3);
         updated = true;
     }
     
-    char* i_pos = strstr(cmd, "I=");
+    char* i_pos = strstr(cmd, "1/Ti=");
     if (i_pos != NULL) {
-        float i_val = atof(i_pos + 2);
+        float i_val = atof(i_pos + 5);
         new_I = i_val;
         updated = true;
     }
     
-    char* d_pos = strstr(cmd, "D=");
+    char* d_pos = strstr(cmd, "Td=");
     if (d_pos != NULL) {
-        new_D = atof(d_pos + 2);
+        new_D = atof(d_pos + 3);
         updated = true;
     }
 
@@ -214,7 +214,7 @@ void parse_pid_command(const char* cmd) {
     
     if (updated) {
         pid_K = new_P;
-        pid_Ti = new_I;
+        pid_1Ti = new_I;
         pid_Td = new_D;
         if (new_up != upright_pitch) {
             upright_pitch = new_up;
@@ -225,8 +225,8 @@ void parse_pid_command(const char* cmd) {
                 ESP_LOGW(TAG, "Could not obtain setPitch_mutex to update upright pitch");
             }
         }
-        ESP_LOGI(TAG, "Updated - P=%.3f, I=%.6f, D=%.3f, Upright=%.3f", 
-                 pid_K, pid_Ti, pid_Td, upright_pitch);
+        ESP_LOGI(TAG, "Updated - Kp=%.3f, 1/Ti=%.6f, Td=%.3f, Upright=%.3f", 
+                 pid_K, pid_1Ti, pid_Td, upright_pitch);
     }
 }
 
@@ -350,7 +350,7 @@ float PID(float y, float yzad)
 {
 	const float Tp = TASK_PERIOD_MS / 1000.0f; //czas próbkowania
 	const float K = pid_K;
-	const float Ti = pid_Ti;
+	const float _1Ti = pid_1Ti;
 	const float Td = pid_Td;
 
 	static float this_u =  0.0f;
@@ -361,24 +361,24 @@ float PID(float y, float yzad)
 	static float e_2 = 0.0f;
 
     static float last_K = 0.0f;
-    static float last_Ti = 0.0f;
+    static float last_1Ti = 0.0f;
     static float last_Td = 0.0f;
     
-    if (K != last_K || Ti != last_Ti || Td != last_Td || request_pid_reset) {
+    if (K != last_K || _1Ti != last_1Ti || Td != last_Td || request_pid_reset) {
         request_pid_reset = false;
         this_u = 0.0f;
         e = 0.0f;
         e_1 = 0.0f;
         e_2 = 0.0f;
         last_K = K;
-        last_Ti = Ti;
+        last_1Ti = _1Ti;
         last_Td = Td;
         ESP_LOGI(TAG, "PID controller reset due to parameter change");
     }
 
 	const float r2 = (K*Td)/Tp;
-	const float r1 = K*((Tp/(2*Ti))-(2*Td/Tp)-1);
-	const float r0 = K*(1+(Tp/(2*Ti))+(Td/Tp));
+	const float r1 = K*(((Tp/2)*_1Ti)-(2*Td/Tp)-1);
+	const float r0 = K*(1+((Tp/2)*_1Ti)+(Td/Tp));
 
 	//aktualizacja bledow:
 	e_2 = e_1;
