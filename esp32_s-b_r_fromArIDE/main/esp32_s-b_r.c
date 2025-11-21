@@ -29,6 +29,11 @@
 #define TURN_OFFSET 70.0f
 #define TURN_SLEW_RATE 10.0f
 
+static volatile float drive_angle_offset = DRIVE_ANGLE_OFFSET;
+static volatile float speed_slew_rate = SPEED_SLEW_RATE;
+static volatile float turn_offset_val = TURN_OFFSET;
+static volatile float turn_slew_rate = TURN_SLEW_RATE;
+
 #define STARTUP_STABLE_THRESHOLD_DEG 3.0f
 #define STARTUP_STABLE_COUNT 30
 #define STARTUP_SAMPLE_INTERVAL_MS 20
@@ -266,6 +271,43 @@ void parse_move_command(const char* cmd) {
     }
 }
 
+void parse_manual_settings(const char* cmd) {
+    const char *pos = strstr(cmd, "MAN_SET:");
+    if (!pos) return;
+
+    char *dao_pos = strstr(cmd, "DAO=");
+    char *ssr_pos = strstr(cmd, "SSR=");
+    char *to_pos = strstr(cmd, "TO=");
+    char *tsr_pos = strstr(cmd, "TSR=");
+
+    bool updated = false;
+    if (dao_pos) {
+        float v = atof(dao_pos + 4);
+        drive_angle_offset = v;
+        updated = true;
+    }
+    if (ssr_pos) {
+        float v = atof(ssr_pos + 4);
+        speed_slew_rate = v;
+        updated = true;
+    }
+    if (to_pos) {
+        float v = atof(to_pos + 3);
+        turn_offset_val = v;
+        updated = true;
+    }
+    if (tsr_pos) {
+        float v = atof(tsr_pos + 4);
+        turn_slew_rate = v;
+        updated = true;
+    }
+
+    if (updated) {
+        ESP_LOGI(TAG, "Updated manual settings: DAO=%.3f, SSR=%.3f, TO=%.3f, TSR=%.3f",
+                 drive_angle_offset, speed_slew_rate, turn_offset_val, turn_slew_rate);
+    }
+}
+
 void init_debug_features(void) {
     ESP_ERROR_CHECK(my_udp_init());
     ESP_ERROR_CHECK(udp_server_init());
@@ -475,14 +517,14 @@ void regulator_task(void *arg)
             local_setPitch = upright_pitch;
             turnOffset = 0.0f;
         } else if (local_move == MOVE_FORWARD) {
-            update_ramped_speed(&local_setPitch, upright_pitch - DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+            update_ramped_speed(&local_setPitch, upright_pitch - drive_angle_offset, speed_slew_rate, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_BACKWARD) {
-            update_ramped_speed(&local_setPitch, upright_pitch + DRIVE_ANGLE_OFFSET, SPEED_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+            update_ramped_speed(&local_setPitch, upright_pitch + drive_angle_offset, speed_slew_rate, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_LEFT) {
-            update_ramped_turn(&turnOffset, -TURN_OFFSET, TURN_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+            update_ramped_turn(&turnOffset, -turn_offset_val, turn_slew_rate, TASK_PERIOD_MS / 1000.0f);
             local_setPitch = upright_pitch;
         } else if (local_move == MOVE_RIGHT) {
-            update_ramped_turn(&turnOffset, TURN_OFFSET, TURN_SLEW_RATE, TASK_PERIOD_MS / 1000.0f);
+            update_ramped_turn(&turnOffset, turn_offset_val, turn_slew_rate, TASK_PERIOD_MS / 1000.0f);
             local_setPitch = upright_pitch;
         }
         
@@ -613,19 +655,21 @@ void udp_receiver_task(void *arg)
     ESP_LOGI(TAG, "Received %d bytes from %s: %s", len, addr_str, rx_buffer);
 
 
-    if (strstr(rx_buffer, "CONNECT") != NULL) {
-        dest_addr = source_addr;
-        dest_addr.sin_port = htons(DESTINATION_PORT);
-        dest_addr_known = true;
-        ESP_LOGI(TAG, "CONNECT received — remote set to %s, sending INIT", addr_str);
-        send_initial_pid_values();
-    } else if (!dest_addr_known) {
-        ESP_LOGI(TAG, "Ignoring packet before CONNECT from %s", addr_str);
-    }else if (strstr(rx_buffer, "MOVE:") != NULL) {
-        parse_move_command(rx_buffer);
-    } else {
-        parse_pid_command(rx_buffer);
-    }
+        if (strstr(rx_buffer, "CONNECT") != NULL) {
+            dest_addr = source_addr;
+            dest_addr.sin_port = htons(DESTINATION_PORT);
+            dest_addr_known = true;
+            ESP_LOGI(TAG, "CONNECT received — remote set to %s, sending INIT", addr_str);
+            send_initial_pid_values();
+        } else if (!dest_addr_known) {
+            ESP_LOGI(TAG, "Ignoring packet before CONNECT from %s", addr_str);
+        } else if (strstr(rx_buffer, "MAN_SET:") != NULL) {
+            parse_manual_settings(rx_buffer);
+        } else if (strstr(rx_buffer, "MOVE:") != NULL) {
+            parse_move_command(rx_buffer);
+        } else {
+            parse_pid_command(rx_buffer);
+        }
     }
 }
 

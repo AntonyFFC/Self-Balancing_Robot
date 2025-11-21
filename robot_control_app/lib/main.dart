@@ -299,6 +299,14 @@ class _RobotControlPageState extends State<RobotControlPage> {
 
   Map<String, double> pidValues = {'Kp': 2.5, '1/Ti': 0.0, 'Td': 0.0, 'UPRIGHT': 177.0};
 
+  Map<String, double> manualSettings = {
+    'Drive Angle Offset': 0.0,
+    'Speed Slew Rate': 0.0,
+    'Turn Offset': 0.0,
+    'Turn Slew Rate': 0.0,
+  };
+  late Map<String, TextEditingController> _manualSettingControllers;
+
   Map<String, int> errorCounts = {
     'READ_TIMEOUT': 0,
     'WRITE_TIMEOUT': 0,
@@ -330,6 +338,14 @@ class _RobotControlPageState extends State<RobotControlPage> {
       '1/Ti': TextEditingController(text: pidValues['1/Ti']!.toString()),
       'Td': TextEditingController(text: pidValues['Td']!.toString()),
     };
+
+    _manualSettingControllers = {
+      'Drive Angle Offset': TextEditingController(text: manualSettings['Drive Angle Offset']!.toString()),
+      'Speed Slew Rate': TextEditingController(text: manualSettings['Speed Slew Rate']!.toString()),
+      'Turn Offset': TextEditingController(text: manualSettings['Turn Offset']!.toString()),
+      'Turn Slew Rate': TextEditingController(text: manualSettings['Turn Slew Rate']!.toString()),
+    };
+    _loadManualSettingsFromPrefs();
 
     if (kIsWeb) {
       _udpAvailable = false;
@@ -625,6 +641,48 @@ class _RobotControlPageState extends State<RobotControlPage> {
 
   String _prefKey(String k) => 'pid.' + k.replaceAll('/', '_');
 
+  String _prefKeySetting(String k) => 'setting.' + k;
+
+  Future<void> _saveManualSettingsToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final k in manualSettings.keys) {
+        await prefs.setDouble(_prefKeySetting(k), manualSettings[k] ?? 0.0);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Manual settings saved locally')));
+    } catch (e) {
+      debugPrint('Error saving manual settings: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error saving manual settings')));
+    }
+  }
+
+  Future<void> _loadManualSettingsFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        for (final k in manualSettings.keys) {
+          manualSettings[k] = prefs.getDouble(_prefKeySetting(k)) ?? manualSettings[k]!;
+          _manualSettingControllers[k]!.text = manualSettings[k]!.toString();
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading manual settings: $e');
+    }
+  }
+
+  void _sendManualSettingsToRobot() {
+    // New format required by ESP: MAN_SET:DAO=val,SSR=val,TO=val,TSR=val\n
+    final dao = manualSettings['Drive Angle Offset'] ?? manualSettings['DRIVE_ANGLE_OFFSET'] ?? 0.0;
+    final ssr = manualSettings['Speed Slew Rate'] ?? manualSettings['SPEED_SLEW_RATE'] ?? 0.0;
+    final to = manualSettings['Turn Offset'] ?? manualSettings['TURN_OFFSET'] ?? 0.0;
+    final tsr = manualSettings['Turn Slew Rate'] ?? manualSettings['TURN_SLEW_RATE'] ?? 0.0;
+
+    final cmd = 'MAN_SET:DAO=${dao.toString()},SSR=${ssr.toString()},TO=${to.toString()},TSR=${tsr.toString()}\n';
+    _send(cmd);
+  }
+
   Future<void> _saveParamsToPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -685,7 +743,57 @@ class _RobotControlPageState extends State<RobotControlPage> {
     for (final c in _pidTextControllers.values) {
       c.dispose();
     }
+    for (final c in _manualSettingControllers.values) {
+      c.dispose();
+    }
     super.dispose();
+  }
+
+  Future<void> _showManualSettingsDialog() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Manual settings'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final k in manualSettings.keys)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6.0),
+                    child: TextField(
+                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      controller: _manualSettingControllers[k],
+                      decoration: InputDecoration(labelText: k),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () {
+                // parse and apply
+                setState(() {
+                  for (final k in manualSettings.keys) {
+                    final parsed = double.tryParse(_manualSettingControllers[k]!.text);
+                    if (parsed != null) manualSettings[k] = parsed;
+                    _manualSettingControllers[k]!.text = manualSettings[k]!.toString();
+                  }
+                });
+                _saveManualSettingsToPrefs();
+                _sendManualSettingsToRobot();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Save Settings'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildPidControl(String label, String key, double min, double max, double step) {
@@ -899,9 +1007,23 @@ class _RobotControlPageState extends State<RobotControlPage> {
           // Manual Tab
           Padding(
             padding: const EdgeInsets.all(12.0),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final w = constraints.maxWidth;
+            child: Column(
+              children: [
+                // settings button row
+                Row(
+                  children: [
+                    const Spacer(),
+                    IconButton(
+                      tooltip: 'Manual settings',
+                      onPressed: _showManualSettingsDialog,
+                      icon: const Icon(Icons.settings),
+                    ),
+                  ],
+                ),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final w = constraints.maxWidth;
                 final double big = w > 420 ? 160 : (w * 0.35).clamp(80, 160);
                 final double mid = w > 420 ? 140 : (w * 0.35).clamp(64, 140);
 
@@ -947,25 +1069,28 @@ class _RobotControlPageState extends State<RobotControlPage> {
                   );
                 }
 
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Center(child: buildButton('↑', big, () => _sendMoveCommand('FORWARD'), () => _sendMoveCommand('STOP'))),
-                    SizedBox(height: 16),
+                      return Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Center(child: buildButton('↑', big, () => _sendMoveCommand('FORWARD'), () => _sendMoveCommand('STOP'))),
+                          SizedBox(height: 16),
 
-                    Row(
-                      children: [
-                        Expanded(child: Center(child: buildButton('←', mid, () => _sendMoveCommand('LEFT'), () => _sendMoveCommand('STOP')))),
-                        const SizedBox(width: 12),
-                        Expanded(child: Center(child: buildButton('→', mid, () => _sendMoveCommand('RIGHT'), () => _sendMoveCommand('STOP')))),
-                      ],
-                    ),
+                          Row(
+                            children: [
+                              Expanded(child: Center(child: buildButton('←', mid, () => _sendMoveCommand('LEFT'), () => _sendMoveCommand('STOP')))),
+                              const SizedBox(width: 12),
+                              Expanded(child: Center(child: buildButton('→', mid, () => _sendMoveCommand('RIGHT'), () => _sendMoveCommand('STOP')))),
+                            ],
+                          ),
 
-                    const SizedBox(height: 16),
-                    Center(child: buildButton('↓', big, () => _sendMoveCommand('BACKWARD'), () => _sendMoveCommand('STOP'))),
-                  ],
-                );
-              },
+                          const SizedBox(height: 16),
+                          Center(child: buildButton('↓', big, () => _sendMoveCommand('BACKWARD'), () => _sendMoveCommand('STOP'))),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
 
