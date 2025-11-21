@@ -5,6 +5,7 @@ import 'dart:io' show RawDatagramSocket, InternetAddress, File, RawSocketEvent;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'upright_control.dart';
 
 void main() {
@@ -281,6 +282,8 @@ class _RobotControlPageState extends State<RobotControlPage> {
   // Controllers for text fields so they don't get recreated every build
   late TextEditingController _espIpController;
   late TextEditingController _espPortController;
+  // PID text controllers (persistent so typing isn't interrupted by rebuilds)
+  late Map<String, TextEditingController> _pidTextControllers;
 
   double pitch = 0.0;
   double setPitch = 0.0;
@@ -321,6 +324,12 @@ class _RobotControlPageState extends State<RobotControlPage> {
     super.initState();
     _espIpController = TextEditingController(text: espIp);
     _espPortController = TextEditingController(text: espPort.toString());
+
+    _pidTextControllers = {
+      'Kp': TextEditingController(text: pidValues['Kp']!.toString()),
+      '1/Ti': TextEditingController(text: pidValues['1/Ti']!.toString()),
+      'Td': TextEditingController(text: pidValues['Td']!.toString()),
+    };
 
     if (kIsWeb) {
       _udpAvailable = false;
@@ -436,7 +445,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
         }
 
         if (saveCsv) {
-          csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['Kp'], pidValues['Ti'], pidValues['Td'], pidValues['UPRIGHT']]);
+          csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['Kp'], pidValues['1/Ti'], pidValues['Td'], pidValues['UPRIGHT']]);
         }
       });
     }
@@ -518,6 +527,10 @@ class _RobotControlPageState extends State<RobotControlPage> {
         pidValues['1/Ti'] = map['1/Ti'] ?? pidValues['1/Ti']!;
         pidValues['Td'] = map['Td'] ?? pidValues['Td']!;
         pidValues['UPRIGHT'] = map['UPRIGHT'] ?? pidValues['UPRIGHT']!;
+
+        _pidTextControllers['Kp']!.text = pidValues['Kp']!.toString();
+        _pidTextControllers['1/Ti']!.text = pidValues['1/Ti']!.toString();
+        _pidTextControllers['Td']!.text = pidValues['Td']!.toString();
       });
     } catch (e) {
       debugPrint('Error parsing INIT: $e');
@@ -610,11 +623,68 @@ class _RobotControlPageState extends State<RobotControlPage> {
     }
   }
 
+  String _prefKey(String k) => 'pid.' + k.replaceAll('/', '_');
+
+  Future<void> _saveParamsToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_prefKey('Kp'), pidValues['Kp'] ?? 0.0);
+      await prefs.setDouble(_prefKey('1/Ti'), pidValues['1/Ti'] ?? 0.0);
+      await prefs.setDouble(_prefKey('Td'), pidValues['Td'] ?? 0.0);
+      await prefs.setDouble(_prefKey('UPRIGHT'), pidValues['UPRIGHT'] ?? 177.0);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Parameters saved locally')));
+    } catch (e) {
+      debugPrint('Error saving params: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error saving parameters')));
+    }
+  }
+
+  Future<void> _loadParamsFromPrefs({bool sendAfter = false}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final kp = prefs.getDouble(_prefKey('Kp')) ?? pidValues['Kp']!;
+      final it = prefs.getDouble(_prefKey('1/Ti')) ?? pidValues['1/Ti']!;
+      final td = prefs.getDouble(_prefKey('Td')) ?? pidValues['Td']!;
+      final up = prefs.getDouble(_prefKey('UPRIGHT')) ?? pidValues['UPRIGHT']!;
+      setState(() {
+        pidValues['Kp'] = kp;
+        pidValues['1/Ti'] = it;
+        pidValues['Td'] = td;
+        pidValues['UPRIGHT'] = up;
+      });
+
+      _pidTextControllers['Kp']!.text = pidValues['Kp']!.toString();
+      _pidTextControllers['1/Ti']!.text = pidValues['1/Ti']!.toString();
+      _pidTextControllers['Td']!.text = pidValues['Td']!.toString();
+      if (sendAfter) _sendPidValues();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Parameters loaded from local storage')));
+    } catch (e) {
+      debugPrint('Error loading params: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error loading parameters')));
+    }
+  }
+
+  void _clearCharts() {
+    setState(() {
+      _pitchBuffer.clear();
+      _setPitchBuffer.clear();
+      _uBuffer.clear();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Charts cleared')));
+  }
+
   @override
   void dispose() {
     _heartbeatTimer?.cancel();
     _socketSub?.cancel();
     _socket?.close();
+    for (final c in _pidTextControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -645,6 +715,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
                         if (!v) {
                           // enforce off value
                           pidValues[key] = offVal;
+                          _pidTextControllers[key]!.text = pidValues[key]!.toString();
                         }
                       });
                     },
@@ -661,13 +732,16 @@ class _RobotControlPageState extends State<RobotControlPage> {
               max: max,
               onChanged: (v) {
                 final snapped = (v / step).round() * step;
-                setState(() => pidValues[key] = snapped.clamp(min, max));
+                setState(() {
+                  pidValues[key] = snapped.clamp(min, max);
+                  _pidTextControllers[key]!.text = pidValues[key]!.toString();
+                });
               },
             ),
             const SizedBox(height: 6),
             TextField(
               keyboardType: TextInputType.numberWithOptions(decimal: true),
-              controller: TextEditingController(text: pidValues[key]!.toString()),
+              controller: _pidTextControllers[key],
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 isDense: true,
@@ -676,7 +750,14 @@ class _RobotControlPageState extends State<RobotControlPage> {
               style: const TextStyle(fontSize: 16),
               onSubmitted: (val) {
                 final parsed = double.tryParse(val);
-                if (parsed != null) setState(() => pidValues[key] = parsed.clamp(min, max));
+                if (parsed != null) {
+                  setState(() {
+                    pidValues[key] = parsed.clamp(min, max);
+                    _pidTextControllers[key]!.text = pidValues[key]!.toString();
+                  });
+                } else {
+                  _pidTextControllers[key]!.text = pidValues[key]!.toString();
+                }
               },
             ),
           ] else ...[
@@ -753,6 +834,10 @@ class _RobotControlPageState extends State<RobotControlPage> {
               _buildTelemetryCharts(),
               const SizedBox(height: 8),
                   Row(children: [
+                    ElevatedButton(onPressed: _clearCharts, child: const Text('Clear Charts')),
+                    const SizedBox(width: 12),
+                  ]),
+                  Row(children: [
                     ElevatedButton(onPressed: saveCsv ? _saveCsvToFile : null, child: const Text('Save CSV Now')),
                     const SizedBox(width: 12),
                     Row(children: [
@@ -803,6 +888,8 @@ class _RobotControlPageState extends State<RobotControlPage> {
                         children: [
                           ElevatedButton(onPressed: _sendPidValues, child: const Text('Send Params')),
                           ElevatedButton(onPressed: _getPidValues, child: const Text('Get Params')),
+                          ElevatedButton(onPressed: _saveParamsToPrefs, child: const Text('Save Local')),
+                          ElevatedButton(onPressed: () => _loadParamsFromPrefs(), child: const Text('Load Local')),
                         ],
                       )
               ],
