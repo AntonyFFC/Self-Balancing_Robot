@@ -14,7 +14,7 @@ Jw = 0.0004;    % Moment bezwładności koła [kg*m^2]
 Jc = 0.01;      % Moment bezwładności korpusu [kg*m^2]
 
 % Parametr symulacji cyfrowej
-Ts = 0.01;     % Czas próbkowania [s] (np. 200 Hz - typowe dla robotów)
+Ts = 0.01;     % Czas próbkowania [s] (np. 100 Hz - typowe dla robotów)
 
 % === 2. PARAMETRY POMOCNICZE (Z MODELU) ===
 % Masa zastępcza całkowita (translacja)
