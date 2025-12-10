@@ -75,4 +75,4 @@ ylim([-300 300]);
 grid on;
 
 % Zapis
-exportgraphics(gcf, 'wyniki_real_chaos_ujemny.png', 'Resolution', 300);
+exportgraphics(gcf, 'wyniki_real_chaos.png', 'Resolution', 300);
