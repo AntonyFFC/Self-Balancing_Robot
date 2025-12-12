@@ -68,13 +68,35 @@ fprintf('Ki = %.4f\n', Ki);
 fprintf('Kd = %.4f\n', Kd);
 
 % 4. Weryfikacja symulacj¹
-Gs = tf(b2, [a4, 0, a2]);
+simple = false;
+if simple
+    Gs = tf(b2, [a4, 0, a2]);
+else
+    b_x = 0.1; b_theta = 0.1; % Tarcie (przyk³adowe)
+    Ga4 = Det;
+    Ga3 = b_x * J_tot + b_theta * M_tot;
+    Ga2 = b_x * b_theta - M_tot * m * g * l;
+    Ga1 = -b_x * m * g * l;
+    
+    % Licznik (b)
+    Gb2 = -(M_tot + m*l/R);
+    Gb1 = -b_x;
+    
+    %% 2. Utworzenie Transmitancji Ci¹g³ej G(s)
+    num = [Gb2, Gb1];          % Wspó³czynniki przy s^2, s^1, s^0
+    den = [Ga4, Ga3, Ga2, Ga1];  % Wspó³czynniki przy s^4, s^3, s^2, s^1, s^0
+    
+    Gs = tf(num, den);
+end
 PID_con = pid(Kp, Ki, Kd);
 T_closed = feedback(PID_con * Gs, 1);
+[y, t] = step(T_closed, 2);
 
 figure;
-step(T_closed, 2);
+plot(t, y, 'b', 'LineWidth', 1.5);
 title(['OdpowiedŸ skokowa dla biegunów w p = ' num2str(p)]);
+xlabel('Czas [s]');
+ylabel('K¹t \theta [rad]');
 grid on;
 print('Odp_skok_ciagly_PID.png', '-dpng', '-r400');
 
