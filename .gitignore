@@ -48,3 +48,12 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# MATLAB specific ignore rules
+*.asv
+*.autosave
+*.slxc
+slprj/
+sfprj/
+*.mex*
+*.mat~
+codegen/
