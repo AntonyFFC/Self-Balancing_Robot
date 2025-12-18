@@ -71,7 +71,7 @@ typedef enum {
 
 static volatile move_cmd_t manual_move = MOVE_STOP;
 // ============================================================================
-// UDP DEBUG SECTION - UDP/Python plotter debug functionality
+// UDP DEBUG SECTION
 // ============================================================================
 #if PYTHON_PLOTTER_DEBUG
 
@@ -79,7 +79,7 @@ static volatile move_cmd_t manual_move = MOVE_STOP;
 #define DESTINATION_PORT 7777
 #define LISTEN_PORT 7778
 #define UDP_MSG_MAX_LEN 128
-#define UDP_SENDER_TASK_PERIOD_MS 250
+#define UDP_SENDER_TASK_PERIOD_MS 100
 
 int udp_sock;
 struct sockaddr_in dest_addr;
@@ -111,8 +111,7 @@ esp_err_t my_udp_init(void) {
         return ESP_FAIL;
     }
 
-    // We don't know the remote host yet. The UDP destination will be learned
-    // from the first received packet (source address) and stored in dest_addr.
+    // Adres docelowy zapisany po otrzymaniu komendy CONNECT
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(DESTINATION_PORT);
     dest_addr_known = false;
@@ -208,7 +207,6 @@ void parse_pid_command(const char* cmd) {
     char* up_pos = strstr(cmd, "UPRIGHT=");
     if (up_pos == NULL) up_pos = strstr(cmd, "UPRIGHT:");
     if (up_pos != NULL) {
-        /* find the separator (= or :) and parse after it */
         char *sep = strchr(up_pos, '=');
         if (sep == NULL) sep = strchr(up_pos, ':');
         if (sep != NULL) {
@@ -236,12 +234,10 @@ void parse_pid_command(const char* cmd) {
 }
 
 void parse_move_command(const char* cmd) {
-    // Expecting format: MOVE:FORWARD|BACKWARD|LEFT|RIGHT|STOP
     const char *pos = strstr(cmd, "MOVE:");
     if (!pos) return;
 
     pos += strlen("MOVE:");
-    // copy token to local buffer and strip whitespace/newline
     char token[32];
     int i = 0;
     while (*pos && i < (int)sizeof(token)-1) {
@@ -250,7 +246,6 @@ void parse_move_command(const char* cmd) {
     }
     token[i] = '\0';
 
-    // uppercase token already expected from sender; be permissive
     move_cmd_t new_cmd = MOVE_STOP;
     if (strcasecmp(token, "FORWARD") == 0) new_cmd = MOVE_FORWARD;
     else if (strcasecmp(token, "BACKWARD") == 0) new_cmd = MOVE_BACKWARD;
@@ -318,7 +313,7 @@ void init_debug_features(void) {
 // ============================================================================
 
 #define MPU_INT 4
-#define TASK_PERIOD_MS 10 // changed from 10
+#define TASK_PERIOD_MS 10 //10
 
 void update_ramped_speed(float *current_speed, float target_speed, float slew_rate, float dt)
 {
@@ -743,7 +738,7 @@ void app_main(void)
         }
 
         init_debug_features();
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Small delay to ensure UDP is ready
+        vTaskDelay(pdMS_TO_TICKS(1000));
         send_initial_pid_values();
     #else
         ESP_LOGI(TAG, "UDP debug disabled");

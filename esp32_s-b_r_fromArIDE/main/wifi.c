@@ -9,7 +9,6 @@
 
 static const char *TAG = "wifi";
 
-/* Change these to suit your preferred AP SSID/password */
 #define WIFI_AP_SSID "SBR_AP"
 #define WIFI_AP_PASS "sbrpassword"
 #define WIFI_AP_MAX_CONN 4
@@ -45,12 +44,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         wifi_event_ap_staconnected_t* ev = (wifi_event_ap_staconnected_t*)event_data;
         ESP_LOGI(TAG, "Station connected: AID=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x",
                  ev->aid, ev->mac[0], ev->mac[1], ev->mac[2], ev->mac[3], ev->mac[4], ev->mac[5]);
-        wifi_connected = true; // indicate we have at least one client
+        wifi_connected = true;
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
         wifi_event_ap_stadisconnected_t* ev = (wifi_event_ap_stadisconnected_t*)event_data;
         ESP_LOGI(TAG, "Station disconnected: AID=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x",
                  ev->aid, ev->mac[0], ev->mac[1], ev->mac[2], ev->mac[3], ev->mac[4], ev->mac[5]);
-        // We don't know how many remain; keep wifi_connected true until you want more strict tracking
     }
 }
 
@@ -85,8 +83,6 @@ void wifi_init_ap(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_LOGI(TAG, "Wi-Fi AP initialization complete. SSID:%s", WIFI_AP_SSID);
-    // For AP we can mark wifi_connected true once started (or wait for station connect events)
-    // wifi_connected will be set to true on station connect by event handler
 }
 
 void wifi_init_sta(void) {

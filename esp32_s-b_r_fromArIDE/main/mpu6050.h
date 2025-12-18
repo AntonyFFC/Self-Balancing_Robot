@@ -65,4 +65,4 @@ bool mpu6050_check_fifo_oflow(uint8_t status, uint16_t fifo_count);
 int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFloat *gravity, float ypr[3]);
 
 
-#endif // MPU6050_DMP_H
+#endif

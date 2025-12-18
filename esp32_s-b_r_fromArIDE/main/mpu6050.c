@@ -49,7 +49,7 @@
 #define FIFO_OFLOW_BIT      0x10
 
 #ifndef DMP_FIFO_RATE_DIVISOR 
-#define DMP_FIFO_RATE_DIVISOR 0x01 // The New instance of the Firmware has this as the default
+#define DMP_FIFO_RATE_DIVISOR 0x01
 #endif
 
 #define DMP_MEMORY_CHUNK_SIZE 16
@@ -509,15 +509,6 @@ static esp_err_t mpu6050_set_memory_start_address(uint8_t address)
     return i2c_com_write_register(MEM_START_ADDR_REG, address);
 }
 
-/**
- * @brief Write a large block of data to MPU memory banks
- *
- * @param data pointer to data to write
- * @param data_size total number of bytes to write
- * @param bank starting memory bank (usually 0)
- * @param address starting address within bank (usually 0)
- * @return esp_err_t ESP_OK on success, or I2C error
- */
 esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address)
 {
     esp_err_t ret;

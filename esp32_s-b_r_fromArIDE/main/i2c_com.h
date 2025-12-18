@@ -20,4 +20,4 @@ esp_err_t i2c_com_read_bytes(uint8_t reg, uint8_t *buffer, size_t len);
 esp_err_t i2c_com_write_word(uint8_t reg_high, int16_t value);
 
 
-#endif /* I2C_COM_H */
+#endif
