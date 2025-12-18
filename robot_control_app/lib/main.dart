@@ -673,7 +673,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   void _sendManualSettingsToRobot() {
-    // New format required by ESP: MAN_SET:DAO=val,SSR=val,TO=val,TSR=val\n
     final dao = manualSettings['Drive Angle Offset'] ?? manualSettings['DRIVE_ANGLE_OFFSET'] ?? 0.0;
     final ssr = manualSettings['Speed Slew Rate'] ?? manualSettings['SPEED_SLEW_RATE'] ?? 0.0;
     final to = manualSettings['Turn Offset'] ?? manualSettings['TURN_OFFSET'] ?? 0.0;

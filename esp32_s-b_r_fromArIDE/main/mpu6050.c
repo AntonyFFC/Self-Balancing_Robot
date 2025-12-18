@@ -46,6 +46,7 @@
 #define CLOCK_PLL_ZGYRO         0x03
 #define GYRO_FS_250         0x00
 #define ACCEL_FS_2          0x00
+#define FIFO_OFLOW_BIT      0x10
 
 #ifndef DMP_FIFO_RATE_DIVISOR 
 #define DMP_FIFO_RATE_DIVISOR 0x01 // The New instance of the Firmware has this as the default
@@ -56,6 +57,7 @@
 #define DLPF_BW_42       0x03  // DLPF setting for ~42 Hz bandwidth
 #define GYRO_FS_2000     0x03  // Gyro full-scale range = ±2000 °/s
 #define EXT_SYNC_TEMP_OUT_L 0x02
+#define DMP_INIT_BIT 0x02
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -418,6 +420,16 @@ esp_err_t mpu6050_get_int_status(uint8_t *status)
     return i2c_com_read_register(INT_STATUS_REG, status);
 }
 
+bool mpu6050_check_dmp_status(uint8_t status)
+{
+    return (status & DMP_INIT_BIT);
+}
+
+bool mpu6050_check_fifo_oflow(uint8_t status, uint16_t fifo_count)
+{
+    return ((status & FIFO_OFLOW_BIT) || fifo_count == 1024);
+}
+
 uint16_t mpu6050_get_fifo_packet_size(void)
 {
     return MPU6050_DMP_PACKET_SIZE;
@@ -471,13 +483,13 @@ esp_err_t mpu6050_set_z_accel_offset(int16_t offset)
     return i2c_com_write_word(save_addr, offset);
 }
 
-esp_err_t getFIFOBytes(uint8_t *data, uint8_t length) {
+esp_err_t mpu6050_get_fifo_bytes(uint8_t *data, uint8_t length) {
     if(length > 0){
         esp_err_t ret = i2c_com_read_bytes(FIFO_R_W_REG, data, length);
         if (ret == ESP_OK) {
-            ESP_LOGD(TAG, "getFIFOBytes read %u bytes", length);
+            ESP_LOGD(TAG, "mpu6050_get_fifo_bytes read %u bytes", length);
         } else {
-            ESP_LOGE(TAG, "getFIFOBytes failed: 0x%02x", ret);
+            ESP_LOGE(TAG, "mpu6050_get_fifo_bytes failed: 0x%02x", ret);
         }
         return ret;
     }

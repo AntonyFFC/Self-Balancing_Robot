@@ -398,13 +398,9 @@ float PID(float y, float yzad)
 	static float this_u =  0.0f;
 
 	//bledy:
-	static float e = 0.0f;
-	static float e_1 = 0.0f;
-	static float e_2 = 0.0f;
+	static float e = 0.0f, e_1 = 0.0f, e_2 = 0.0f;
 
-    static float last_K = 0.0f;
-    static float last_1Ti = 0.0f;
-    static float last_Td = 0.0f;
+    static float last_K = 0.0f, last_1Ti = 0.0f, last_Td = 0.0f;
     
     if (K != last_K || _1Ti != last_1Ti || Td != last_Td || request_pid_reset) {
         request_pid_reset = false;
@@ -431,7 +427,7 @@ float PID(float y, float yzad)
 	return this_u;
 }
 
-void regular_100Hz_task(void *arg)
+void Data_Acquisition_task(void *arg)
 {
     for(;;)
     {
@@ -448,18 +444,18 @@ void regular_100Hz_task(void *arg)
         mpu6050_get_int_status(&mpuIntStatus);
         mpu6050_get_fifo_count(&fifoCount);
 
-        if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
+        if (mpu6050_check_fifo_oflow(mpuIntStatus, fifoCount)) {
             ESP_LOGW(TAG, "FIFO overflow detected, resetting FIFO");
             mpu6050_reset_fifo();
             continue;
         }
 
-        if (mpuIntStatus & 0x02) {
+        if (mpu6050_check_dmp_status(mpuIntStatus)) {
             while (fifoCount < packetSize) {
                 mpu6050_get_fifo_count(&fifoCount);
             }
 
-            getFIFOBytes(fifoBuffer, packetSize);
+            mpu6050_get_fifo_bytes(fifoBuffer, packetSize);
             mpu6050_parse_fifo_packet(fifoBuffer, &q, &gravity, ypr);
 
             newPitch = ypr[1] * 180 / M_PI;
@@ -475,17 +471,17 @@ void regular_100Hz_task(void *arg)
 }
 
 
-void regulator_task(void *arg)
+void Balance_Control_task(void *arg)
 {
     TickType_t last_wake_time = xTaskGetTickCount();
     const float max_u = 255.0f;
     
     while (true)
     {
-        if (!dmpReady) {
-            return;
-        }
+        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
 
+        if (!dmpReady) continue;
+ 
         float local_pitch;
         if (xSemaphoreTake(pitch_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
             local_pitch = pitch;
@@ -543,30 +539,26 @@ void regulator_task(void *arg)
         float left_pwm_ratio = (left_abs_control / max_u);
         float right_pwm_ratio = (right_abs_control / max_u);
         
-        if (!motors_enabled) {
-            motor_stop();
-        } else {
-            if(local_pitch>150.0f && local_pitch < 200) {
-                if(left_u>0)
-                {
-                    motor_left_forward(left_pwm_ratio);
-                }
-                else if (left_u<0)
-                {
-                    motor_left_backward(left_pwm_ratio);
-                }
-
-                if(right_u>0)
-                {
-                    motor_right_forward(right_pwm_ratio);
-                }
-                else if (right_u<0)
-                {
-                    motor_right_backward(right_pwm_ratio);
-                }
-            } else {
-                motor_stop();
+        if (motors_enabled && local_pitch>150.0f && local_pitch < 200) {
+            if(left_u>0)
+            {
+                motor_left_forward(left_pwm_ratio);
             }
+            else if (left_u<0)
+            {
+                motor_left_backward(left_pwm_ratio);
+            }
+
+            if(right_u>0)
+            {
+                motor_right_forward(right_pwm_ratio);
+            }
+            else if (right_u<0)
+            {
+                motor_right_backward(right_pwm_ratio);
+            }
+        } else {
+            motor_stop();
         }
 
         if (xSemaphoreTake(u_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
@@ -582,8 +574,6 @@ void regulator_task(void *arg)
         } else {
             continue;
         }
-
-        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_PERIOD_MS));
     }
 }
 
@@ -663,10 +653,10 @@ void udp_receiver_task(void *arg)
             send_initial_pid_values();
         } else if (!dest_addr_known) {
             ESP_LOGI(TAG, "Ignoring packet before CONNECT from %s", addr_str);
-        } else if (strstr(rx_buffer, "MAN_SET:") != NULL) {
-            parse_manual_settings(rx_buffer);
         } else if (strstr(rx_buffer, "MOVE:") != NULL) {
             parse_move_command(rx_buffer);
+        } else if (strstr(rx_buffer, "MAN_SET:") != NULL) {
+            parse_manual_settings(rx_buffer);
         } else {
             parse_pid_command(rx_buffer);
         }
@@ -724,7 +714,7 @@ void app_main(void)
 
         mpu6050_set_dmp_enabled(true);
 
-        xTaskCreatePinnedToCore(regular_100Hz_task, "100Hz_task", 4096, NULL, 20, &mpu_task_handle,1);
+        xTaskCreatePinnedToCore(Data_Acquisition_task, "Data_Acquisition_task", 4096, NULL, 20, &mpu_task_handle,1);
         ret = mpu6050_interrupt_init();
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to initialize MPU6050 interrupt GPIO");
@@ -760,7 +750,7 @@ void app_main(void)
     #endif
         wait_for_stable_pitch_and_enable();
 
-        xTaskCreatePinnedToCore(regulator_task, "regulator_task", 4096, NULL, 10, NULL,1);
+        xTaskCreatePinnedToCore(Balance_Control_task, "Balance_Control_task", 4096, NULL, 10, NULL,1);
     } else {
         ESP_LOGE(TAG, "DMP Initialization failed (code %d)", devStatus);
     }

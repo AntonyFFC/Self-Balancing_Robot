@@ -41,6 +41,7 @@ esp_err_t mpu6050_set_motion_detection_threshold(uint8_t threshold);
 esp_err_t mpu6050_set_zero_motion_detection_threshold(uint8_t threshold);
 esp_err_t mpu6050_set_motion_detection_duration(uint8_t duration);
 esp_err_t mpu6050_set_zero_motion_detection_duration(uint8_t duration);
+bool mpu6050_check_dmp_status(uint8_t status);
 
 esp_err_t mpu6050_write_prog_memory_block(const uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address);
 
@@ -57,7 +58,8 @@ esp_err_t mpu6050_get_int_status(uint8_t *status);
 esp_err_t mpu6050_get_fifo_count(uint16_t *count);
 esp_err_t mpu6050_read_fifo(uint8_t *buf, uint16_t len);
 uint16_t mpu6050_get_fifo_packet_size(void);
-esp_err_t getFIFOBytes(uint8_t *data, uint8_t length);
+esp_err_t mpu6050_get_fifo_bytes(uint8_t *data, uint8_t length);
+bool mpu6050_check_fifo_oflow(uint8_t status, uint16_t fifo_count);
 
 // DMP data parsing
 int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFloat *gravity, float ypr[3]);
