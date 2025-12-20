@@ -535,20 +535,20 @@ void Balance_Control_task(void *arg)
         float right_pwm_ratio = (right_abs_control / max_u);
         
         if (motors_enabled && local_pitch>150.0f && local_pitch < 200) {
-            if(left_u>0)
+            if(left_u<0)
             {
                 motor_left_forward(left_pwm_ratio);
             }
-            else if (left_u<0)
+            else if (left_u>0)
             {
                 motor_left_backward(left_pwm_ratio);
             }
 
-            if(right_u>0)
+            if(right_u<0)
             {
                 motor_right_forward(right_pwm_ratio);
             }
-            else if (right_u<0)
+            else if (right_u>0)
             {
                 motor_right_backward(right_pwm_ratio);
             }
