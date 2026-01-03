@@ -275,15 +275,12 @@ class RobotControlPage extends StatefulWidget {
 class _RobotControlPageState extends State<RobotControlPage> {
   RawDatagramSocket? _socket;
   final int listenPort = 7777;
-  // String espIp = '192.168.1.47';
   String espIp = '192.168.4.1';
   int espPort = 7778;
   bool _udpAvailable = true;
 
-  // Controllers for text fields so they don't get recreated every build
   late TextEditingController _espIpController;
   late TextEditingController _espPortController;
-  // PID text controllers (persistent so typing isn't interrupted by rebuilds)
   late Map<String, TextEditingController> _pidTextControllers;
 
   double pitch = 0.0;
@@ -320,6 +317,8 @@ class _RobotControlPageState extends State<RobotControlPage> {
   String lastErrorCode = 'None';
 
   List<List<dynamic>> csvData = [];
+
+  final Stopwatch _stopwatch = Stopwatch();
 
   StreamSubscription<RawSocketEvent>? _socketSub;
   bool isConnected = false;
@@ -460,12 +459,14 @@ class _RobotControlPageState extends State<RobotControlPage> {
           _uBuffer.removeAt(0);
         }
 
-        csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['Kp'], pidValues['1/Ti'], pidValues['Td'], pidValues['UPRIGHT']]);
+        csvData.add([_getElapsedTime(), pitch, setPitch, controlSignal, pidValues['Kp'], pidValues['1/Ti'], pidValues['Td'], pidValues['UPRIGHT']]);
       });
     }
   }
 
   void _onConnected() {
+    _stopwatch.reset();
+    _stopwatch.start();
     setState(() {
       isConnected = true;
       _connectDialogShown = false;
@@ -522,7 +523,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   void _parseInitMessage(String message) {
-    // Example: INIT:P=2.500,I=0.000001,D=0.000,UPRIGHT=177.000
+    // INIT:P=2.500,I=0.000001,D=0.000,UPRIGHT=177.000
     try {
       final parts = message.split(':');
       if (parts.length < 2) return;
@@ -626,6 +627,8 @@ class _RobotControlPageState extends State<RobotControlPage> {
     }
     return buf.toString();
   }
+
+  double _getElapsedTime() => _stopwatch.elapsedMilliseconds / 1000.0;
 
   Future<void> _shareCsvFile() async {
     if (csvData.isEmpty) {
@@ -779,7 +782,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
             TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () {
-                // parse and apply
                 setState(() {
                   for (final k in manualSettings.keys) {
                     final parsed = double.tryParse(_manualSettingControllers[k]!.text);
@@ -824,7 +826,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
                       setState(() {
                         pidEnabled[key] = v;
                         if (!v) {
-                          // enforce off value
                           pidValues[key] = offVal;
                           _pidTextControllers[key]!.text = pidValues[key]!.toString();
                         }
@@ -952,12 +953,11 @@ class _RobotControlPageState extends State<RobotControlPage> {
             ]),
           ),
 
-          // PID Tab (vertical layout for touch)
+          // PID Tab
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
-                // controls scrollable area
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(
@@ -1005,7 +1005,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
             padding: const EdgeInsets.all(12.0),
             child: Column(
               children: [
-                // settings button row
                 Row(
                   children: [
                     const Spacer(),
