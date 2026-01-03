@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 import 'upright_control.dart';
 
 void main() {
@@ -318,7 +319,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
   String lastErrorTime = 'None';
   String lastErrorCode = 'None';
 
-  bool saveCsv = true;
   List<List<dynamic>> csvData = [];
 
   StreamSubscription<RawSocketEvent>? _socketSub;
@@ -460,9 +460,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
           _uBuffer.removeAt(0);
         }
 
-        if (saveCsv) {
-          csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['Kp'], pidValues['1/Ti'], pidValues['Td'], pidValues['UPRIGHT']]);
-        }
+        csvData.add([DateTime.now().toIso8601String(), pitch, setPitch, controlSignal, pidValues['Kp'], pidValues['1/Ti'], pidValues['Td'], pidValues['UPRIGHT']]);
       });
     }
   }
@@ -620,22 +618,28 @@ class _RobotControlPageState extends State<RobotControlPage> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('CONNECT sent')));
   }
 
-  Future<void> _saveCsvToFile() async {
+  String _buildCsvString() {
+    final buf = StringBuffer();
+    buf.writeln('Time,Pitch,SetPitch,ControlSignal,Kp,1/Ti,Td,UPRIGHT');
+    for (final row in csvData) {
+      buf.writeln(row.join(','));
+    }
+    return buf.toString();
+  }
+
+  Future<void> _shareCsvFile() async {
+    if (csvData.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No CSV data to share')));
+      return;
+    }
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final fname = 'pid_data_${DateTime.now().toIso8601String().replaceAll(':', '-')}.csv';
-      final file = File('${dir.path}/$fname');
-      final sink = file.openWrite();
-  sink.writeln('Time,Pitch,SetPitch,ControlSignal,Kp,1/Ti,Td,UPRIGHT');
-      for (final row in csvData) {
-        sink.writeln(row.join(','));
-      }
-      await sink.flush();
-      await sink.close();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved CSV to ${file.path}')));
+      final tmpDir = await getTemporaryDirectory();
+      final file = File('${tmpDir.path}/pid_data_share.csv');
+      await file.writeAsString(_buildCsvString());
+      await Share.shareXFiles([XFile(file.path)], text: 'Robot telemetry CSV');
     } catch (e) {
-      debugPrint('Error saving CSV: $e');
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error saving CSV')));
+      debugPrint('Error sharing CSV: $e');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error sharing CSV')));
     }
   }
 
@@ -940,18 +944,11 @@ class _RobotControlPageState extends State<RobotControlPage> {
               // Charts
               _buildTelemetryCharts(),
               const SizedBox(height: 8),
-                  Row(children: [
-                    ElevatedButton(onPressed: _clearCharts, child: const Text('Clear Charts')),
-                    const SizedBox(width: 12),
-                  ]),
-                  Row(children: [
-                    ElevatedButton(onPressed: saveCsv ? _saveCsvToFile : null, child: const Text('Save CSV Now')),
-                    const SizedBox(width: 12),
-                    Row(children: [
-                      const Text('Save CSV'),
-                      Switch(value: saveCsv, onChanged: (v) => setState(() => saveCsv = v)),
-                    ])
-                  ])
+              Row(children: [
+                ElevatedButton(onPressed: _clearCharts, child: const Text('Clear Charts')),
+                const SizedBox(width: 12),
+                ElevatedButton(onPressed: _shareCsvFile, child: const Text('Share CSV')),
+              ])
             ]),
           ),
 
