@@ -16,10 +16,10 @@ static const char *TAG = "motor";
 #define LEDC_MAX_DUTY           16383
 #define LEDC_FREQUENCY          500
 
-#define LEDC_OUTPUT_IO_1 25
-#define LEDC_OUTPUT_IO_2 26
-#define LEDC_OUTPUT_IO_3 27
-#define LEDC_OUTPUT_IO_4 14
+#define LEDC_OUTPUT_IO_1 33
+#define LEDC_OUTPUT_IO_2 25
+#define LEDC_OUTPUT_IO_3 26
+#define LEDC_OUTPUT_IO_4 27
 
 static float min_pwm_percent = 0.0f;  // Minimum PWM percentage for motor movement
 static float motor_threshold_percent = 5.0f;  // Minimum PWM threshold to activate motors
