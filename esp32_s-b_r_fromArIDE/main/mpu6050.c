@@ -583,3 +583,25 @@ int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFl
 
     return 0;
 }
+
+esp_err_t mpu6050_get_motion6(int16_t* ax, int16_t* ay, int16_t* az, int16_t* gx, int16_t* gy, int16_t* gz)
+{
+    uint8_t buffer[14];
+    esp_err_t ret;
+
+    ret = i2c_com_read_bytes(ACCEL_START_REG, buffer, 14);
+    
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    *ax = (((int16_t)buffer[0]) << 8) | buffer[1];
+    *ay = (((int16_t)buffer[2]) << 8) | buffer[3];
+    *az = (((int16_t)buffer[4]) << 8) | buffer[5];
+    
+    *gx = (((int16_t)buffer[8]) << 8) | buffer[9];
+    *gy = (((int16_t)buffer[10]) << 8) | buffer[11];
+    *gz = (((int16_t)buffer[12]) << 8) | buffer[13];
+
+    return ESP_OK;
+}

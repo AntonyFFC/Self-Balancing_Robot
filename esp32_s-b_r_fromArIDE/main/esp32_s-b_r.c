@@ -45,9 +45,9 @@ TaskHandle_t mpu_task_handle = NULL;
 static float pid_K = 9.0f;
 static float pid_1Ti = 0.0f;
 static float pid_Td = 0.0f;
-static float setPitch = 177.0f, u = 0.0f;
+static float setPitch = 180.0f, u = 0.0f;
 volatile float pitch = 0.0f;
-static float upright_pitch = 177.0f;
+static float upright_pitch = 180.0f;
 
 static volatile bool motors_enabled = false;
 static volatile bool request_pid_reset = false;
@@ -697,10 +697,10 @@ void app_main(void)
 
     uint8_t devStatus;
     devStatus = mpu6050_dmp_initialize();
-    mpu6050_set_x_gyro_offset(220);
-    mpu6050_set_y_gyro_offset(76);
-    mpu6050_set_z_gyro_offset(-85);
-    mpu6050_set_z_accel_offset(1688);
+    mpu6050_set_x_gyro_offset(137);
+    mpu6050_set_y_gyro_offset(31);
+    mpu6050_set_z_gyro_offset(6);
+    mpu6050_set_z_accel_offset(0);
     if (devStatus == 0) {
         pitch_mutex = xSemaphoreCreateMutex();
         u_mutex = xSemaphoreCreateMutex();
@@ -755,3 +755,127 @@ void app_main(void)
     xTaskCreatePinnedToCore(udp_receiver_task, "udp_receiver_task", 4096, NULL, 4, NULL, 0);
 #endif
 }
+
+
+// #define BUFFER_SIZE 1000
+// #define ACCEL_DEADZONE 8
+// #define GYRO_DEADZONE 1
+
+// int16_t ax, ay, az, gx, gy, gz;
+// int mean_az, mean_gx, mean_gy, mean_gz;
+// int az_offset, gx_offset, gy_offset, gz_offset;
+
+// void meansensors() {
+//     long i = 0;
+//     long buff_az = 0;
+//     long buff_gx = 0, buff_gy = 0, buff_gz = 0;
+
+//     while (i < (BUFFER_SIZE + 101)) {
+//         mpu6050_get_motion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+//         if (i > 100 && i <= (BUFFER_SIZE + 100)) {
+//             buff_az += az;
+//             buff_gx += gx;
+//             buff_gy += gy;
+//             buff_gz += gz;
+//         }
+
+//         if (i == (BUFFER_SIZE + 100)) {
+//             mean_az = buff_az / BUFFER_SIZE;
+//             mean_gx = buff_gx / BUFFER_SIZE;
+//             mean_gy = buff_gy / BUFFER_SIZE;
+//             mean_gz = buff_gz / BUFFER_SIZE;
+//         }
+        
+//         i++;
+//         vTaskDelay(pdMS_TO_TICKS(2)); 
+//     }
+// }
+
+// void calibration() {
+//     int target_az = -16384;
+
+//     az_offset = (target_az - mean_az) / 8; 
+//     gx_offset = -mean_gx / 4;
+//     gy_offset = -mean_gy / 4;
+//     gz_offset = -mean_gz / 4;
+
+//     int attempt = 0;
+
+//     while (1) {
+//         int ready = 0;
+
+//         mpu6050_set_z_accel_offset(az_offset);
+//         mpu6050_set_x_gyro_offset(gx_offset);
+//         mpu6050_set_y_gyro_offset(gy_offset);
+//         mpu6050_set_z_gyro_offset(gz_offset);
+
+//         meansensors();
+//         attempt++;
+
+//         int az_error = abs(target_az - mean_az);
+//         int gx_error = abs(mean_gx);
+//         int gy_error = abs(mean_gy);
+//         int gz_error = abs(mean_gz);
+
+//         printf("Att: %d | Err: %d %d %d %d | OFFSETS: %d, %d, %d, %d\n", 
+//                     attempt, az_error, gx_error, gy_error, gz_error, 
+//                     gx_offset, gy_offset, gz_offset, az_offset);
+
+//         if (az_error <= ACCEL_DEADZONE) ready++;
+//         else az_offset = az_offset + (target_az - mean_az) / ACCEL_DEADZONE;
+
+//         if (gx_error <= GYRO_DEADZONE) ready++;
+//         else gx_offset = gx_offset - mean_gx / (GYRO_DEADZONE + 1);
+
+//         if (gy_error <= GYRO_DEADZONE) ready++;
+//         else gy_offset = gy_offset - mean_gy / (GYRO_DEADZONE + 1);
+
+//         if (gz_error <= GYRO_DEADZONE) ready++;
+//         else gz_offset = gz_offset - mean_gz / (GYRO_DEADZONE + 1);
+
+//         if (ready == 4) break;
+        
+//         if (attempt >= 50) {
+//              ESP_LOGW(TAG, "Stopping. Using last known good offsets.");
+//              break;
+//         }
+//     }
+// }
+
+// void app_main(void)
+// {
+//     ESP_ERROR_CHECK(i2c_master_init());
+//     mpu6050_init();
+    
+//     uint8_t dev_id;
+//     if (mpu6050_get_who_am_i(&dev_id) != ESP_OK) {
+//         ESP_LOGE(TAG, "MPU6050 not found!");
+//         return;
+//     }
+//     ESP_LOGI(TAG, "MPU6050 found. ID: %x", dev_id);
+
+//     mpu6050_set_z_accel_offset(0);
+//     mpu6050_set_x_gyro_offset(0);
+//     mpu6050_set_y_gyro_offset(0);
+//     mpu6050_set_z_gyro_offset(0);
+
+//     vTaskDelay(pdMS_TO_TICKS(2000));
+
+//     ESP_LOGI(TAG, "Reading initial values...");
+//     meansensors();
+
+//     ESP_LOGI(TAG, "Calibrating...");
+//     calibration();
+
+//     ESP_LOGI(TAG, "Verifying...");
+//     meansensors();
+
+//     printf("FINAL OFFSETS:\n");
+//     printf("x gyro offset: %d\n", gx_offset);
+//     printf("y gyro offset: %d\n", gy_offset);
+//     printf("z gyro offset: %d\n", gz_offset);
+//     printf("z accel offset: %d\n", az_offset);
+    
+//     while(1) { vTaskDelay(1000); }
+// }

@@ -64,5 +64,7 @@ bool mpu6050_check_fifo_oflow(uint8_t status, uint16_t fifo_count);
 // DMP data parsing
 int mpu6050_parse_fifo_packet(const uint8_t *fifoBuffer, Quaternion *q, VectorFloat *gravity, float ypr[3]);
 
+esp_err_t mpu6050_get_motion6(int16_t* ax, int16_t* ay, int16_t* az, int16_t* gx, int16_t* gy, int16_t* gz);
+
 
 #endif
