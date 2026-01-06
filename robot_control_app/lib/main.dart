@@ -963,9 +963,9 @@ class _RobotControlPageState extends State<RobotControlPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _buildPidControl('Kp Constant', 'Kp', 0.0, 20.0, 0.1),
+                        _buildPidControl('Kp Constant', 'Kp', 0.0, 50.0, 0.5),
                         const SizedBox(height: 12),
-                        _buildPidControl('1/Ti Constant', '1/Ti', 0.0, 2.0, 0.01),
+                        _buildPidControl('1/Ti Constant', '1/Ti', 0.0, 20.0, 0.05),
                         const SizedBox(height: 12),
                         _buildPidControl('Td Constant', 'Td', 0.0, 2.0, 0.01),
                         const SizedBox(height: 12),
