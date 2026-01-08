@@ -46,6 +46,7 @@ static float pid_K = 9.0f;
 static float pid_1Ti = 0.0f;
 static float pid_Td = 0.0f;
 static float setPitch = 180.0f, u = 0.0f;
+static float min_u = 0.0f; 
 volatile float pitch = 0.0f;
 static float upright_pitch = 180.0f;
 
@@ -169,8 +170,8 @@ static void udp_send_data(const char *data) {
 
 void send_initial_pid_values(void) {
     char init_msg[UDP_MSG_MAX_LEN];
-    snprintf(init_msg, sizeof(init_msg), "INIT:Kp=%.3f,1/Ti=%.6f,Td=%.3f,UPRIGHT=%.3f\n", 
-             pid_K, pid_1Ti, pid_Td, upright_pitch);
+    snprintf(init_msg, sizeof(init_msg), "INIT:Kp=%.3f,1/Ti=%.6f,Td=%.3f,UPRIGHT=%.3f,MIN_U=%.3f\n", 
+             pid_K, pid_1Ti, pid_Td, upright_pitch, min_u);
     udp_send_data(init_msg);
     ESP_LOGI(TAG, "Sent initial PID values: %s", init_msg);
 }
@@ -178,6 +179,7 @@ void send_initial_pid_values(void) {
 void parse_pid_command(const char* cmd) {
     float new_P = pid_K, new_I = pid_1Ti, new_D = pid_Td;
     float new_up = upright_pitch;
+    float new_min_u = min_u;
     bool updated = false;
 
     if (strstr(cmd, "GET") != NULL) {
@@ -205,12 +207,19 @@ void parse_pid_command(const char* cmd) {
     }
 
     char* up_pos = strstr(cmd, "UPRIGHT=");
-    if (up_pos == NULL) up_pos = strstr(cmd, "UPRIGHT:");
     if (up_pos != NULL) {
         char *sep = strchr(up_pos, '=');
-        if (sep == NULL) sep = strchr(up_pos, ':');
         if (sep != NULL) {
             new_up = atof(sep + 1);
+            updated = true;
+        }
+    }
+
+    char* min_u_pos = strstr(cmd, "MIN_U=");
+    if (min_u_pos != NULL) {
+        char *sep = strchr(min_u_pos, '=');
+        if (sep != NULL) {
+            new_min_u = atof(sep + 1);
             updated = true;
         }
     }
@@ -228,8 +237,9 @@ void parse_pid_command(const char* cmd) {
                 ESP_LOGW(TAG, "Could not obtain setPitch_mutex to update upright pitch");
             }
         }
-        ESP_LOGI(TAG, "Updated - Kp=%.3f, 1/Ti=%.6f, Td=%.3f, Upright=%.3f", 
-                 pid_K, pid_1Ti, pid_Td, upright_pitch);
+        min_u = new_min_u;
+        ESP_LOGI(TAG, "Updated - Kp=%.3f, 1/Ti=%.6f, Td=%.3f, Upright=%.3f, MIN_U=%.3f", 
+                 pid_K, pid_1Ti, pid_Td, upright_pitch, min_u);
     }
 }
 
@@ -418,7 +428,23 @@ float PID(float y, float yzad)
 	e_1 = e;
 	e = yzad - y;
 
+	// float prev_u = this_u;
 	this_u = r2*e_2 + r1*e_1 + r0*e + this_u;
+	
+	// const float max_pid_output = 255.0f;
+	// if (this_u > max_pid_output) this_u = max_pid_output;
+	// if (this_u < -max_pid_output) this_u = -max_pid_output;
+	
+	// static uint32_t last_log_time = 0;
+	// uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+	// if (now - last_log_time > 2000) {
+	// 	float delta_u = this_u - prev_u;
+	// 	ESP_LOGI(TAG, "PID: y=%.2f yzad=%.2f e=%.2f e_1=%.2f e_2=%.2f", y, yzad, e, e_1, e_2);
+	// 	ESP_LOGI(TAG, "PID: r0=%.3f r1=%.3f r2=%.3f prev_u=%.2f delta=%.2f this_u=%.2f", 
+	// 	         r0, r1, r2, prev_u, delta_u, this_u);
+	// 	last_log_time = now;
+	// }
+	
 	return this_u;
 }
 
@@ -469,7 +495,7 @@ void Data_Acquisition_task(void *arg)
 void Balance_Control_task(void *arg)
 {
     TickType_t last_wake_time = xTaskGetTickCount();
-    const float max_u = 255.0f;
+    const float max_u = 255.0f;//200.0f
     
     while (true)
     {
@@ -492,6 +518,8 @@ void Balance_Control_task(void *arg)
         } else {
             continue;
         }
+
+        float local_min_u = min_u; 
 
         move_cmd_t local_move;
         if (xSemaphoreTake(move_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
@@ -524,6 +552,18 @@ void Balance_Control_task(void *arg)
         float left_u = local_u + turnOffset;
         float right_u = local_u - turnOffset;
 
+        if (left_u > 0.001f) {
+            left_u += local_min_u;
+        } else if (left_u < -0.001f) {
+            left_u -= local_min_u;
+        }
+
+        if (right_u > 0.001f) {
+            right_u += local_min_u;
+        } else if (right_u < -0.001f) {
+            right_u -= local_min_u;
+        }
+
         if (left_u > max_u) left_u = max_u;
         if (left_u < -max_u) left_u = -max_u;
         if (right_u > max_u) right_u = max_u;
@@ -534,7 +574,8 @@ void Balance_Control_task(void *arg)
         float left_pwm_ratio = (left_abs_control / max_u);
         float right_pwm_ratio = (right_abs_control / max_u);
         
-        if (motors_enabled && local_pitch>150.0f && local_pitch < 200) {
+        if (motors_enabled && local_pitch>150.0f && local_pitch < 200 && local_u < (2*max_u) && local_u > -(2*max_u)) {
+        // if (motors_enabled && local_pitch>150.0f && local_pitch < 200) {
             if(left_u<0)
             {
                 motor_left_forward(left_pwm_ratio);

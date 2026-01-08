@@ -20,7 +20,9 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Robot Control',
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple)),
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+      ),
       home: const RobotControlPage(),
     );
   }
@@ -34,7 +36,14 @@ class TelemetryChart extends StatelessWidget {
   final double? minY;
   final double? maxY;
 
-  const TelemetryChart({Key? key, required this.pitchBuffer, required this.setPitchBuffer, this.title = '', this.minY, this.maxY}) : super(key: key);
+  const TelemetryChart({
+    Key? key,
+    required this.pitchBuffer,
+    required this.setPitchBuffer,
+    this.title = '',
+    this.minY,
+    this.maxY,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +60,12 @@ class TelemetryChart extends StatelessWidget {
             builder: (context, constraints) {
               return CustomPaint(
                 size: Size(constraints.maxWidth, constraints.maxHeight),
-                painter: _TelemetryPainter(pitch: pitchBuffer, setPitch: setPitchBuffer, minY: minY, maxY: maxY),
+                painter: _TelemetryPainter(
+                  pitch: pitchBuffer,
+                  setPitch: setPitchBuffer,
+                  minY: minY,
+                  maxY: maxY,
+                ),
               );
             },
           ),
@@ -69,23 +83,41 @@ class _TelemetryPainter extends CustomPainter {
 
   static const double leftPadding = 44.0;
 
-  _TelemetryPainter({required this.pitch, required this.setPitch, this.minY, this.maxY});
+  _TelemetryPainter({
+    required this.pitch,
+    required this.setPitch,
+    this.minY,
+    this.maxY,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-  final paintGrid = Paint()..color = Colors.grey.withOpacity(0.25)..strokeWidth = 1.0;
-  final paintPitch = Paint()..color = Colors.blue..style = PaintingStyle.stroke..strokeWidth = 2.0;
-  final paintSet = Paint()..color = Colors.red..style = PaintingStyle.stroke..strokeWidth = 2.0;
+    final paintGrid =
+        Paint()
+          ..color = Colors.grey.withOpacity(0.25)
+          ..strokeWidth = 1.0;
+    final paintPitch =
+        Paint()
+          ..color = Colors.blue
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0;
+    final paintSet =
+        Paint()
+          ..color = Colors.red
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0;
 
-  final plotLeft = leftPadding;
-  final plotWidth = size.width - plotLeft;
-  final plotHeight = size.height;
+    final plotLeft = leftPadding;
+    final plotWidth = size.width - plotLeft;
+    final plotHeight = size.height;
 
     final combined = <double>[];
     combined.addAll(pitch);
     combined.addAll(setPitch);
-    double dataMin = combined.isNotEmpty ? combined.reduce((a, b) => a < b ? a : b) : 0.0;
-    double dataMax = combined.isNotEmpty ? combined.reduce((a, b) => a > b ? a : b) : 1.0;
+    double dataMin =
+        combined.isNotEmpty ? combined.reduce((a, b) => a < b ? a : b) : 0.0;
+    double dataMax =
+        combined.isNotEmpty ? combined.reduce((a, b) => a > b ? a : b) : 1.0;
 
     final double finalMinY = (minY ?? dataMin) - 0.0;
     final double finalMaxY = (maxY ?? dataMax) + 0.0;
@@ -99,23 +131,45 @@ class _TelemetryPainter extends CustomPainter {
       final y = plotHeight * dy;
       final value = finalMaxY - dy * range;
       canvas.drawLine(Offset(plotLeft, y), Offset(size.width, y), paintGrid);
-      final tp = TextPainter(text: TextSpan(text: value.toStringAsFixed(1), style: textStyle), textDirection: TextDirection.ltr);
+      final tp = TextPainter(
+        text: TextSpan(text: value.toStringAsFixed(1), style: textStyle),
+        textDirection: TextDirection.ltr,
+      );
       tp.layout();
       tp.paint(canvas, Offset(plotLeft - tp.width - 6, y - tp.height / 2));
     }
 
-  final hasAbove = (pitch.isNotEmpty && pitch.last > finalMaxY) || (setPitch.isNotEmpty && setPitch.last > finalMaxY);
-  final hasBelow = (pitch.isNotEmpty && pitch.last < finalMinY) || (setPitch.isNotEmpty && setPitch.last < finalMinY);
-    final bandPaint = Paint()..color = Colors.red.withOpacity(0.12)..style = PaintingStyle.fill;
+    final hasAbove =
+        (pitch.isNotEmpty && pitch.last > finalMaxY) ||
+        (setPitch.isNotEmpty && setPitch.last > finalMaxY);
+    final hasBelow =
+        (pitch.isNotEmpty && pitch.last < finalMinY) ||
+        (setPitch.isNotEmpty && setPitch.last < finalMinY);
+    final bandPaint =
+        Paint()
+          ..color = Colors.red.withOpacity(0.12)
+          ..style = PaintingStyle.fill;
     const bandFrac = 0.07;
     if (hasAbove) {
-      canvas.drawRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight * bandFrac), bandPaint);
+      canvas.drawRect(
+        Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight * bandFrac),
+        bandPaint,
+      );
     }
     if (hasBelow) {
-      canvas.drawRect(Rect.fromLTWH(plotLeft, plotHeight * (1 - bandFrac), plotWidth, plotHeight * bandFrac), bandPaint);
+      canvas.drawRect(
+        Rect.fromLTWH(
+          plotLeft,
+          plotHeight * (1 - bandFrac),
+          plotWidth,
+          plotHeight * bandFrac,
+        ),
+        bandPaint,
+      );
     }
 
-    double mapY(double v) => plotHeight - ((v - finalMinY) / range) * plotHeight;
+    double mapY(double v) =>
+        plotHeight - ((v - finalMinY) / range) * plotHeight;
 
     void drawSeries(List<double> data, Paint normalPaint) {
       if (data.isEmpty) return;
@@ -138,7 +192,10 @@ class _TelemetryPainter extends CustomPainter {
         final x = plotLeft + plotWidth / 2;
         final v = data[0].clamp(finalMinY, finalMaxY);
         final y = mapY(v);
-        final fill = Paint()..color = normalPaint.color..style = PaintingStyle.fill;
+        final fill =
+            Paint()
+              ..color = normalPaint.color
+              ..style = PaintingStyle.fill;
         canvas.drawCircle(Offset(x, y), 2.0, fill);
       }
 
@@ -151,7 +208,10 @@ class _TelemetryPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TelemetryPainter oldDelegate) {
-    return oldDelegate.pitch != pitch || oldDelegate.setPitch != setPitch || oldDelegate.minY != minY || oldDelegate.maxY != maxY;
+    return oldDelegate.pitch != pitch ||
+        oldDelegate.setPitch != setPitch ||
+        oldDelegate.minY != minY ||
+        oldDelegate.maxY != maxY;
   }
 }
 
@@ -161,7 +221,13 @@ class ControlChart extends StatelessWidget {
   final double? minY;
   final double? maxY;
 
-  const ControlChart({Key? key, required this.uBuffer, this.title = '', this.minY, this.maxY}) : super(key: key);
+  const ControlChart({
+    Key? key,
+    required this.uBuffer,
+    this.title = '',
+    this.minY,
+    this.maxY,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -198,8 +264,15 @@ class _ControlPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paintGrid = Paint()..color = Colors.grey.withOpacity(0.25)..strokeWidth = 1.0;
-  final paintU = Paint()..color = Colors.green..style = PaintingStyle.stroke..strokeWidth = 2.0;
+    final paintGrid =
+        Paint()
+          ..color = Colors.grey.withOpacity(0.25)
+          ..strokeWidth = 1.0;
+    final paintU =
+        Paint()
+          ..color = Colors.green
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0;
 
     final plotLeft = leftPadding;
     final plotWidth = size.width - plotLeft;
@@ -217,23 +290,40 @@ class _ControlPainter extends CustomPainter {
       final y = plotHeight * dy;
       final value = finalMax - dy * range;
       canvas.drawLine(Offset(plotLeft, y), Offset(size.width, y), paintGrid);
-      final tp = TextPainter(text: TextSpan(text: value.toStringAsFixed(0), style: textStyle), textDirection: TextDirection.ltr);
+      final tp = TextPainter(
+        text: TextSpan(text: value.toStringAsFixed(0), style: textStyle),
+        textDirection: TextDirection.ltr,
+      );
       tp.layout();
       tp.paint(canvas, Offset(plotLeft - tp.width - 6, y - tp.height / 2));
     }
 
-  if (u.isEmpty) return;
+    if (u.isEmpty) return;
 
     final n = u.length;
-  final hasAbove = (u.isNotEmpty && u.last > finalMax);
-  final hasBelow = (u.isNotEmpty && u.last < finalMin);
-    final bandPaint = Paint()..color = Colors.red.withOpacity(0.12)..style = PaintingStyle.fill;
+    final hasAbove = (u.isNotEmpty && u.last > finalMax);
+    final hasBelow = (u.isNotEmpty && u.last < finalMin);
+    final bandPaint =
+        Paint()
+          ..color = Colors.red.withOpacity(0.12)
+          ..style = PaintingStyle.fill;
     const bandFrac = 0.07;
     if (hasAbove) {
-      canvas.drawRect(Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight * bandFrac), bandPaint);
+      canvas.drawRect(
+        Rect.fromLTWH(plotLeft, 0, plotWidth, plotHeight * bandFrac),
+        bandPaint,
+      );
     }
     if (hasBelow) {
-      canvas.drawRect(Rect.fromLTWH(plotLeft, plotHeight * (1 - bandFrac), plotWidth, plotHeight * bandFrac), bandPaint);
+      canvas.drawRect(
+        Rect.fromLTWH(
+          plotLeft,
+          plotHeight * (1 - bandFrac),
+          plotWidth,
+          plotHeight * bandFrac,
+        ),
+        bandPaint,
+      );
     }
 
     double mapY(double v) => plotHeight - ((v - finalMin) / range) * plotHeight;
@@ -253,7 +343,10 @@ class _ControlPainter extends CustomPainter {
       final x = plotLeft + plotWidth / 2;
       final v = u[0].clamp(finalMin, finalMax);
       final y = mapY(v);
-      final fill = Paint()..color = paintU.color..style = PaintingStyle.fill;
+      final fill =
+          Paint()
+            ..color = paintU.color
+            ..style = PaintingStyle.fill;
       canvas.drawCircle(Offset(x, y), 2.0, fill);
     }
     canvas.restore();
@@ -261,7 +354,9 @@ class _ControlPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ControlPainter oldDelegate) {
-    return oldDelegate.u != u || oldDelegate.minY != minY || oldDelegate.maxY != maxY;
+    return oldDelegate.u != u ||
+        oldDelegate.minY != minY ||
+        oldDelegate.maxY != maxY;
   }
 }
 
@@ -292,10 +387,16 @@ class _RobotControlPageState extends State<RobotControlPage> {
   final List<double> _setPitchBuffer = [];
   final List<double> _uBuffer = [];
 
-  Map<String, bool> pidEnabled = {'Kp': true, '1/Ti': true, 'Td': true};
-  final Map<String, double> pidOffValues = {'Kp': 0.0, '1/Ti': 0.0, 'Td': 0.0};
+  Map<String, bool> pidEnabled = {'Kp': true, '1/Ti': true, 'Td': true, 'UPRIGHT': true, 'MIN_U': true};
+  final Map<String, double> pidOffValues = {'Kp': 0.0, '1/Ti': 0.0, 'Td': 0.0, 'UPRIGHT': 180.0, 'MIN_U': 0.0};
 
-  Map<String, double> pidValues = {'Kp': 2.5, '1/Ti': 0.0, 'Td': 0.0, 'UPRIGHT': 177.0};
+  Map<String, double> pidValues = {
+    'Kp': 2.5,
+    '1/Ti': 0.0,
+    'Td': 0.0,
+    'UPRIGHT': 180.0,
+    'MIN_U': 0.0,
+  };
 
   Map<String, double> manualSettings = {
     'Drive Angle Offset': 0.0,
@@ -336,13 +437,23 @@ class _RobotControlPageState extends State<RobotControlPage> {
       'Kp': TextEditingController(text: pidValues['Kp']!.toString()),
       '1/Ti': TextEditingController(text: pidValues['1/Ti']!.toString()),
       'Td': TextEditingController(text: pidValues['Td']!.toString()),
+      'UPRIGHT': TextEditingController(text: pidValues['UPRIGHT']!.toString()),
+      'MIN_U': TextEditingController(text: pidValues['MIN_U']!.toString()),
     };
 
     _manualSettingControllers = {
-      'Drive Angle Offset': TextEditingController(text: manualSettings['Drive Angle Offset']!.toString()),
-      'Speed Slew Rate': TextEditingController(text: manualSettings['Speed Slew Rate']!.toString()),
-      'Turn Offset': TextEditingController(text: manualSettings['Turn Offset']!.toString()),
-      'Turn Slew Rate': TextEditingController(text: manualSettings['Turn Slew Rate']!.toString()),
+      'Drive Angle Offset': TextEditingController(
+        text: manualSettings['Drive Angle Offset']!.toString(),
+      ),
+      'Speed Slew Rate': TextEditingController(
+        text: manualSettings['Speed Slew Rate']!.toString(),
+      ),
+      'Turn Offset': TextEditingController(
+        text: manualSettings['Turn Offset']!.toString(),
+      ),
+      'Turn Slew Rate': TextEditingController(
+        text: manualSettings['Turn Slew Rate']!.toString(),
+      ),
     };
     _loadManualSettingsFromPrefs();
 
@@ -411,7 +522,6 @@ class _RobotControlPageState extends State<RobotControlPage> {
       debugPrint('UDP listener started on port $listenPort');
       _heartbeatTimer?.cancel();
       _heartbeatTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-
         final now = DateTime.now();
         if (_lastReceived == null) {
           if (!isConnected) return;
@@ -450,16 +560,25 @@ class _RobotControlPageState extends State<RobotControlPage> {
         _lastReceived = DateTime.now();
         if (!isConnected) _onConnected();
 
-  _pitchBuffer.add(pitch);
-  _setPitchBuffer.add(setPitch);
-  _uBuffer.add(controlSignal);
+        _pitchBuffer.add(pitch);
+        _setPitchBuffer.add(setPitch);
+        _uBuffer.add(controlSignal);
         if (_pitchBuffer.length > _maxSamples) {
           _pitchBuffer.removeAt(0);
           _setPitchBuffer.removeAt(0);
           _uBuffer.removeAt(0);
         }
 
-        csvData.add([_getElapsedTime(), pitch, setPitch, controlSignal, pidValues['Kp'], pidValues['1/Ti'], pidValues['Td'], pidValues['UPRIGHT']]);
+        csvData.add([
+          _getElapsedTime(),
+          pitch,
+          setPitch,
+          controlSignal,
+          pidValues['Kp'],
+          pidValues['1/Ti'],
+          pidValues['Td'],
+          pidValues['UPRIGHT'],
+        ]);
       });
     }
   }
@@ -471,7 +590,9 @@ class _RobotControlPageState extends State<RobotControlPage> {
       isConnected = true;
       _connectDialogShown = false;
     });
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Connected — receiving data')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Connected — receiving data')));
   }
 
   void _onDisconnected() {
@@ -482,7 +603,9 @@ class _RobotControlPageState extends State<RobotControlPage> {
       _connectDialogShown = true;
       _showConnectDialog();
     }
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No data — disconnected')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('No data — disconnected')));
   }
 
   Widget _buildTelemetryCharts() {
@@ -514,7 +637,12 @@ class _RobotControlPageState extends State<RobotControlPage> {
             margin: const EdgeInsets.symmetric(vertical: 4),
             child: Padding(
               padding: const EdgeInsets.all(8.0),
-              child: ControlChart(uBuffer: _uBuffer, title: 'Control Signal', minY: -255.0, maxY: 255.0),
+              child: ControlChart(
+                uBuffer: _uBuffer,
+                title: 'Control Signal',
+                minY: -255.0,
+                maxY: 255.0,
+              ),
             ),
           ),
         ),
@@ -534,7 +662,12 @@ class _RobotControlPageState extends State<RobotControlPage> {
           final kv = pair.split('=');
           final k = kv[0].trim();
           final v = double.tryParse(kv[1]) ?? 0.0;
-          if (k == 'Kp' || k == '1/Ti' || k == 'Td' || k == 'UPRIGHT') map[k] = v;
+          if (k == 'Kp' ||
+              k == '1/Ti' ||
+              k == 'Td' ||
+              k == 'UPRIGHT' ||
+              k == 'MIN_U')
+            map[k] = v;
         }
       }
       setState(() {
@@ -542,10 +675,13 @@ class _RobotControlPageState extends State<RobotControlPage> {
         pidValues['1/Ti'] = map['1/Ti'] ?? pidValues['1/Ti']!;
         pidValues['Td'] = map['Td'] ?? pidValues['Td']!;
         pidValues['UPRIGHT'] = map['UPRIGHT'] ?? pidValues['UPRIGHT']!;
+        pidValues['MIN_U'] = map['MIN_U'] ?? pidValues['MIN_U']!;
 
         _pidTextControllers['Kp']!.text = pidValues['Kp']!.toString();
         _pidTextControllers['1/Ti']!.text = pidValues['1/Ti']!.toString();
         _pidTextControllers['Td']!.text = pidValues['Td']!.toString();
+        _pidTextControllers['UPRIGHT']!.text = pidValues['UPRIGHT']!.toString();
+        _pidTextControllers['MIN_U']!.text = pidValues['MIN_U']!.toString();
       });
     } catch (e) {
       debugPrint('Error parsing INIT: $e');
@@ -586,7 +722,13 @@ class _RobotControlPageState extends State<RobotControlPage> {
     try {
       if (!_udpAvailable) {
         debugPrint('UDP not available on this platform; cannot send.');
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('UDP unavailable on this platform. Use a device or emulator.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'UDP unavailable on this platform. Use a device or emulator.',
+            ),
+          ),
+        );
         return;
       }
 
@@ -601,7 +743,8 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   void _sendPidValues() {
-    final cmd = 'Kp=${pidValues['Kp']},1/Ti=${pidValues['1/Ti']},Td=${pidValues['Td']},UPRIGHT=${pidValues['UPRIGHT']}\n';
+    final cmd =
+        'Kp=${pidValues['Kp']},1/Ti=${pidValues['1/Ti']},Td=${pidValues['Td']},UPRIGHT=${pidValues['UPRIGHT']},MIN_U=${pidValues['MIN_U']}\n';
     _send(cmd);
   }
 
@@ -657,11 +800,15 @@ class _RobotControlPageState extends State<RobotControlPage> {
         await prefs.setDouble(_prefKeySetting(k), manualSettings[k] ?? 0.0);
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Manual settings saved locally')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Manual settings saved locally')),
+      );
     } catch (e) {
       debugPrint('Error saving manual settings: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error saving manual settings')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error saving manual settings')),
+      );
     }
   }
 
@@ -670,7 +817,8 @@ class _RobotControlPageState extends State<RobotControlPage> {
       final prefs = await SharedPreferences.getInstance();
       setState(() {
         for (final k in manualSettings.keys) {
-          manualSettings[k] = prefs.getDouble(_prefKeySetting(k)) ?? manualSettings[k]!;
+          manualSettings[k] =
+              prefs.getDouble(_prefKeySetting(k)) ?? manualSettings[k]!;
           _manualSettingControllers[k]!.text = manualSettings[k]!.toString();
         }
       });
@@ -680,10 +828,20 @@ class _RobotControlPageState extends State<RobotControlPage> {
   }
 
   void _sendManualSettingsToRobot() {
-    final dao = manualSettings['Drive Angle Offset'] ?? manualSettings['DRIVE_ANGLE_OFFSET'] ?? 0.0;
-    final ssr = manualSettings['Speed Slew Rate'] ?? manualSettings['SPEED_SLEW_RATE'] ?? 0.0;
-    final to = manualSettings['Turn Offset'] ?? manualSettings['TURN_OFFSET'] ?? 0.0;
-    final tsr = manualSettings['Turn Slew Rate'] ?? manualSettings['TURN_SLEW_RATE'] ?? 0.0;
+    final dao =
+        manualSettings['Drive Angle Offset'] ??
+        manualSettings['DRIVE_ANGLE_OFFSET'] ??
+        0.0;
+    final ssr =
+        manualSettings['Speed Slew Rate'] ??
+        manualSettings['SPEED_SLEW_RATE'] ??
+        0.0;
+    final to =
+        manualSettings['Turn Offset'] ?? manualSettings['TURN_OFFSET'] ?? 0.0;
+    final tsr =
+        manualSettings['Turn Slew Rate'] ??
+        manualSettings['TURN_SLEW_RATE'] ??
+        0.0;
 
     final cmd = 'MAN_SET:DAO=${dao.toString()},SSR=${ssr.toString()},TO=${to.toString()},TSR=${tsr.toString()}\n';
     _send(cmd);
@@ -696,6 +854,7 @@ class _RobotControlPageState extends State<RobotControlPage> {
       await prefs.setDouble(_prefKey('1/Ti'), pidValues['1/Ti'] ?? 0.0);
       await prefs.setDouble(_prefKey('Td'), pidValues['Td'] ?? 0.0);
       await prefs.setDouble(_prefKey('UPRIGHT'), pidValues['UPRIGHT'] ?? 177.0);
+      await prefs.setDouble(_prefKey('MIN_U'), pidValues['MIN_U'] ?? 0.0);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Parameters saved locally')));
     } catch (e) {
@@ -712,16 +871,20 @@ class _RobotControlPageState extends State<RobotControlPage> {
       final it = prefs.getDouble(_prefKey('1/Ti')) ?? pidValues['1/Ti']!;
       final td = prefs.getDouble(_prefKey('Td')) ?? pidValues['Td']!;
       final up = prefs.getDouble(_prefKey('UPRIGHT')) ?? pidValues['UPRIGHT']!;
+      final mu = prefs.getDouble(_prefKey('MIN_U')) ?? pidValues['MIN_U']!;
       setState(() {
         pidValues['Kp'] = kp;
         pidValues['1/Ti'] = it;
         pidValues['Td'] = td;
         pidValues['UPRIGHT'] = up;
+        pidValues['MIN_U'] = mu;
       });
 
       _pidTextControllers['Kp']!.text = pidValues['Kp']!.toString();
       _pidTextControllers['1/Ti']!.text = pidValues['1/Ti']!.toString();
       _pidTextControllers['Td']!.text = pidValues['Td']!.toString();
+      _pidTextControllers['UPRIGHT']!.text = pidValues['UPRIGHT']!.toString();
+      _pidTextControllers['MIN_U']!.text = pidValues['MIN_U']!.toString();
       if (sendAfter) _sendPidValues();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Parameters loaded from local storage')));
@@ -818,7 +981,12 @@ class _RobotControlPageState extends State<RobotControlPage> {
               ),
               Row(
                 children: [
-                  Text(enabled ? 'On' : 'Off', style: TextStyle(color: enabled ? Colors.green : Colors.red)),
+                  Text(
+                    enabled ? 'On' : 'Off',
+                    style: TextStyle(
+                      color: enabled ? Colors.green : Colors.red,
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   Switch(
                     value: enabled,
@@ -875,11 +1043,14 @@ class _RobotControlPageState extends State<RobotControlPage> {
           ] else ...[
             Padding(
               padding: const EdgeInsets.only(top: 6.0, bottom: 6.0),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Disabled — value enforced to ${offVal.toString()}'),
-              ]),
-            )
-          ]
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Disabled — value enforced to ${offVal.toString()}'),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -904,232 +1075,370 @@ class _RobotControlPageState extends State<RobotControlPage> {
                 ),
               ),
               const SizedBox(width: 6),
-              Text(isConnected ? 'Connected' : 'Disconnected', style: const TextStyle(fontSize: 12)),
+              Text(
+                isConnected ? 'Connected' : 'Disconnected',
+                style: const TextStyle(fontSize: 12),
+              ),
             ],
           ),
-          bottom: const TabBar(tabs: [
-        Tab(text: 'Telemetry'),
-      Tab(text: 'Parameters'),
-      Tab(text: 'Manual'),
-            Tab(text: 'Config & Errors'),
-          ]),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Telemetry'),
+              Tab(text: 'Parameters'),
+              Tab(text: 'Manual'),
+              Tab(text: 'Config & Errors'),
+            ],
+          ),
         ),
-        body: TabBarView(children: [
-          // Telemetry Tab
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (!kIsWeb)
-                const SizedBox.shrink()
-              else
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  color: Colors.yellow[200],
-                  child: const Text('UDP sockets are not available when running in a browser. Run this app on an Android/iOS device or emulator to enable UDP.'),
-                ),
-              const SizedBox(height: 8),
-              Row(
+        body: TabBarView(
+          children: [
+            // Telemetry Tab
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                      child: Text('Pitch: ${pitch.toStringAsFixed(2)}°',
-                          style: TextStyle(fontSize: 18, color: Colors.blue))),
-                  Expanded(
-                      child: Text('Set Pitch: ${setPitch.toStringAsFixed(2)}°',
-                          style: TextStyle(fontSize: 18, color: Colors.red))),
-                  Expanded(
-                      child: Text('Control: ${controlSignal.toStringAsFixed(1)}',
-                          style: TextStyle(fontSize: 18, color: Colors.green))),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Charts
-              _buildTelemetryCharts(),
-              const SizedBox(height: 8),
-              Row(children: [
-                ElevatedButton(onPressed: _clearCharts, child: const Text('Clear Charts')),
-                const SizedBox(width: 12),
-                ElevatedButton(onPressed: _shareCsvFile, child: const Text('Share CSV')),
-              ])
-            ]),
-          ),
-
-          // PID Tab
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildPidControl('Kp Constant', 'Kp', 0.0, 50.0, 0.5),
-                        const SizedBox(height: 12),
-                        _buildPidControl('1/Ti Constant', '1/Ti', 0.0, 20.0, 0.05),
-                        const SizedBox(height: 12),
-                        _buildPidControl('Td Constant', 'Td', 0.0, 2.0, 0.01),
-                        const SizedBox(height: 12),
-                        UprightControl(
-                          label: 'Upright Pitch',
-                          value: pidValues['UPRIGHT']!,
-                          min: 150.0,
-                          max: 200.0,
-                          onChanged: (v) {
-                            final snapped = (v * 10).round() / 10.0;
-                            setState(() => pidValues['UPRIGHT'] = snapped.clamp(150.0, 200.0));
-                          },
-                          onSubmitted: (v) => setState(() => pidValues['UPRIGHT'] = v.clamp(150.0, 200.0)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-                      Wrap(
-                        alignment: WrapAlignment.end,
-                        spacing: 12,
-                        children: [
-                          ElevatedButton(onPressed: _sendPidValues, child: const Text('Send Params')),
-                          ElevatedButton(onPressed: _getPidValues, child: const Text('Get Params')),
-                          ElevatedButton(onPressed: _saveParamsToPrefs, child: const Text('Save Local')),
-                          ElevatedButton(onPressed: () => _loadParamsFromPrefs(), child: const Text('Load Local')),
-                        ],
-                      )
-              ],
-            ),
-          ),
-
-          // Manual Tab
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    const Spacer(),
-                    IconButton(
-                      tooltip: 'Manual settings',
-                      onPressed: _showManualSettingsDialog,
-                      icon: const Icon(Icons.settings),
-                    ),
-                  ],
-                ),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final w = constraints.maxWidth;
-                final double big = w > 420 ? 160 : (w * 0.35).clamp(80, 160);
-                final double mid = w > 420 ? 140 : (w * 0.35).clamp(64, 140);
-
-                Widget buildButton(String label, double size, VoidCallback onDown, VoidCallback onUp) {
-                  IconData? icon;
-                  switch (label) {
-                    case '↑':
-                      icon = Icons.arrow_upward;
-                      break;
-                    case '↓':
-                      icon = Icons.arrow_downward;
-                      break;
-                    case '←':
-                      icon = Icons.arrow_back;
-                      break;
-                    case '→':
-                      icon = Icons.arrow_forward;
-                      break;
-                    default:
-                      icon = null;
-                  }
-
-                  return Material(
-                    color: Theme.of(context).colorScheme.primary,
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () {},
-                      onTapDown: (_) => onDown(),
-                      onTapUp: (_) => onUp(),
-                      onTapCancel: () => onUp(),
-                      child: SizedBox(
-                        width: size,
-                        height: size,
-                        child: Center(
-                          child: icon != null
-                              ? Icon(icon, size: size * 0.45, color: Colors.white)
-                              : Text(label, style: TextStyle(fontSize: size * 0.28, color: Colors.white)),
-                        ),
+                  if (!kIsWeb)
+                    const SizedBox.shrink()
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      color: Colors.yellow[200],
+                      child: const Text(
+                        'UDP sockets are not available when running in a browser. Run this app on an Android/iOS device or emulator to enable UDP.',
                       ),
                     ),
-                  );
-                }
-
-                      return Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Center(child: buildButton('↑', big, () => _sendMoveCommand('FORWARD'), () => _sendMoveCommand('STOP'))),
-                          SizedBox(height: 16),
-
-                          Row(
-                            children: [
-                              Expanded(child: Center(child: buildButton('←', mid, () => _sendMoveCommand('LEFT'), () => _sendMoveCommand('STOP')))),
-                              const SizedBox(width: 12),
-                              Expanded(child: Center(child: buildButton('→', mid, () => _sendMoveCommand('RIGHT'), () => _sendMoveCommand('STOP')))),
-                            ],
-                          ),
-
-                          const SizedBox(height: 16),
-                          Center(child: buildButton('↓', big, () => _sendMoveCommand('BACKWARD'), () => _sendMoveCommand('STOP'))),
-                        ],
-                      );
-                    },
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Pitch: ${pitch.toStringAsFixed(2)}°',
+                          style: TextStyle(fontSize: 18, color: Colors.blue),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          'Set Pitch: ${setPitch.toStringAsFixed(2)}°',
+                          style: TextStyle(fontSize: 18, color: Colors.red),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          'Control: ${controlSignal.toStringAsFixed(1)}',
+                          style: TextStyle(fontSize: 18, color: Colors.green),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-          ),
-
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Config & Errors', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text('Total Errors: $totalErrors'),
-              Text('Last Error Time: $lastErrorTime'),
-              Text('Last Code: $lastErrorCode'),
-              const SizedBox(height: 8),
-              Wrap(spacing: 12, children: errorCounts.keys.map((k) => Chip(label: Text('$k: ${errorCounts[k]}'))).toList()),
-              const SizedBox(height: 12),
-              Row(children: [
-                Expanded(
-                    child: TextField(
-                  decoration: const InputDecoration(labelText: 'ESP IP'),
-                  controller: _espIpController,
-                  onSubmitted: (v) => setState(() => espIp = v),
-                )),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 120,
-                  child: TextField(
-                    decoration: const InputDecoration(labelText: 'ESP Port'),
-                    controller: _espPortController,
-                    keyboardType: TextInputType.number,
-                    onSubmitted: (v) => setState(() => espPort = int.tryParse(v) ?? espPort),
-                  ),
-                )
-              ]),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  ElevatedButton(
-                    onPressed: _sendConnectCommand,
-                    child: const Text('Connect to Robot'),
+                  const SizedBox(height: 12),
+                  // Charts
+                  _buildTelemetryCharts(),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      ElevatedButton(
+                        onPressed: _clearCharts,
+                        child: const Text('Clear Charts'),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton(
+                        onPressed: _shareCsvFile,
+                        child: const Text('Share CSV'),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ]),
-          ),
-        ]),
+            ),
+
+            // PID Tab
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildPidControl('Kp Constant', 'Kp', 0.0, 50.0, 0.5),
+                          const SizedBox(height: 12),
+                          _buildPidControl(
+                            '1/Ti Constant',
+                            '1/Ti',
+                            0.0,
+                            20.0,
+                            0.05,
+                          ),
+                          const SizedBox(height: 12),
+                          _buildPidControl('Td Constant', 'Td', 0.0, 2.0, 0.01),
+                          const SizedBox(height: 12),
+                          _buildPidControl('Min U', 'MIN_U', 0.0, 80.0, 1.0),
+                          const SizedBox(height: 12),
+                          UprightControl(
+                            label: 'Upright Pitch',
+                            value: pidValues['UPRIGHT']!,
+                            min: 150.0,
+                            max: 200.0,
+                            controller: _pidTextControllers['UPRIGHT']!,
+                            onChanged: (v) {
+                              final snapped = (v * 10).round() / 10.0;
+                              setState(() {
+                                pidValues['UPRIGHT'] = snapped.clamp(
+                                  150.0,
+                                  200.0,
+                                );
+                                _pidTextControllers['UPRIGHT']!.text =
+                                    pidValues['UPRIGHT']!.toString();
+                              });
+                            },
+                            onSubmitted:
+                                (v) => setState(() {
+                                  pidValues['UPRIGHT'] = v.clamp(150.0, 200.0);
+                                  _pidTextControllers['UPRIGHT']!.text =
+                                      pidValues['UPRIGHT']!.toString();
+                                }),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 12,
+                    children: [
+                      ElevatedButton(
+                        onPressed: _sendPidValues,
+                        child: const Text('Send Params'),
+                      ),
+                      ElevatedButton(
+                        onPressed: _getPidValues,
+                        child: const Text('Get Params'),
+                      ),
+                      ElevatedButton(
+                        onPressed: _saveParamsToPrefs,
+                        child: const Text('Save Local'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => _loadParamsFromPrefs(),
+                        child: const Text('Load Local'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Manual Tab
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'Manual settings',
+                        onPressed: _showManualSettingsDialog,
+                        icon: const Icon(Icons.settings),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final w = constraints.maxWidth;
+                        final double big =
+                            w > 420 ? 160 : (w * 0.35).clamp(80, 160);
+                        final double mid =
+                            w > 420 ? 140 : (w * 0.35).clamp(64, 140);
+
+                        Widget buildButton(
+                          String label,
+                          double size,
+                          VoidCallback onDown,
+                          VoidCallback onUp,
+                        ) {
+                          IconData? icon;
+                          switch (label) {
+                            case '↑':
+                              icon = Icons.arrow_upward;
+                              break;
+                            case '↓':
+                              icon = Icons.arrow_downward;
+                              break;
+                            case '←':
+                              icon = Icons.arrow_back;
+                              break;
+                            case '→':
+                              icon = Icons.arrow_forward;
+                              break;
+                            default:
+                              icon = null;
+                          }
+
+                          return Material(
+                            color: Theme.of(context).colorScheme.primary,
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () {},
+                              onTapDown: (_) => onDown(),
+                              onTapUp: (_) => onUp(),
+                              onTapCancel: () => onUp(),
+                              child: SizedBox(
+                                width: size,
+                                height: size,
+                                child: Center(
+                                  child:
+                                      icon != null
+                                          ? Icon(
+                                            icon,
+                                            size: size * 0.45,
+                                            color: Colors.white,
+                                          )
+                                          : Text(
+                                            label,
+                                            style: TextStyle(
+                                              fontSize: size * 0.28,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        return Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Center(
+                              child: buildButton(
+                                '↑',
+                                big,
+                                () => _sendMoveCommand('FORWARD'),
+                                () => _sendMoveCommand('STOP'),
+                              ),
+                            ),
+                            SizedBox(height: 16),
+
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Center(
+                                    child: buildButton(
+                                      '←',
+                                      mid,
+                                      () => _sendMoveCommand('LEFT'),
+                                      () => _sendMoveCommand('STOP'),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Center(
+                                    child: buildButton(
+                                      '→',
+                                      mid,
+                                      () => _sendMoveCommand('RIGHT'),
+                                      () => _sendMoveCommand('STOP'),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 16),
+                            Center(
+                              child: buildButton(
+                                '↓',
+                                big,
+                                () => _sendMoveCommand('BACKWARD'),
+                                () => _sendMoveCommand('STOP'),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Config & Errors',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Total Errors: $totalErrors'),
+                  Text('Last Error Time: $lastErrorTime'),
+                  Text('Last Code: $lastErrorCode'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 12,
+                    children:
+                        errorCounts.keys
+                            .map(
+                              (k) => Chip(label: Text('$k: ${errorCounts[k]}')),
+                            )
+                            .toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            labelText: 'ESP IP',
+                          ),
+                          controller: _espIpController,
+                          onSubmitted: (v) => setState(() => espIp = v),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 120,
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            labelText: 'ESP Port',
+                          ),
+                          controller: _espPortController,
+                          keyboardType: TextInputType.number,
+                          onSubmitted:
+                              (v) => setState(
+                                () => espPort = int.tryParse(v) ?? espPort,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      ElevatedButton(
+                        onPressed: _sendConnectCommand,
+                        child: const Text('Connect to Robot'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
