@@ -533,18 +533,18 @@ void Balance_Control_task(void *arg)
 
         if (local_move == MOVE_STOP)
         {
-            local_setPitch = upright_pitch;
-            turnOffset = 0.0f;
+            update_ramped_speed(&local_setPitch, upright_pitch, speed_slew_rate, TASK_PERIOD_MS / 1000.0f);
+            update_ramped_turn(&turnOffset, 0.0f, turn_slew_rate, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_FORWARD) {
             update_ramped_speed(&local_setPitch, upright_pitch - drive_angle_offset, speed_slew_rate, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_BACKWARD) {
             update_ramped_speed(&local_setPitch, upright_pitch + drive_angle_offset, speed_slew_rate, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_LEFT) {
             update_ramped_turn(&turnOffset, -turn_offset_val, turn_slew_rate, TASK_PERIOD_MS / 1000.0f);
-            local_setPitch = upright_pitch;
+            update_ramped_speed(&local_setPitch, upright_pitch, speed_slew_rate, TASK_PERIOD_MS / 1000.0f);
         } else if (local_move == MOVE_RIGHT) {
             update_ramped_turn(&turnOffset, turn_offset_val, turn_slew_rate, TASK_PERIOD_MS / 1000.0f);
-            local_setPitch = upright_pitch;
+            update_ramped_speed(&local_setPitch, upright_pitch, speed_slew_rate, TASK_PERIOD_MS / 1000.0f);
         }
         
         float local_u = PID(local_pitch, local_setPitch);

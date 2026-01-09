@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-df = pd.read_csv('pid_data_share.csv')
+df = pd.read_csv('pid_data_share(1).csv')
 
 df['time_s'] = df.index * 0.1
 
@@ -11,6 +11,7 @@ ax1.plot(df['time_s'], df['Pitch'], label='Pitch', linewidth=1.5)
 ax1.plot(df['time_s'], df['SetPitch'], label='SetPitch', linewidth=1.5, linestyle='--')
 ax1.set_ylabel('Pitch (deg)')
 ax1.set_title('Pitch Tracking over Time')
+ax1.set_ylim(150, 200)
 ax1.legend()
 ax1.grid(True, alpha=0.3)
 
@@ -18,6 +19,7 @@ ax2.plot(df['time_s'], df['ControlSignal'], label='Control Signal', linewidth=1.
 ax2.set_xlabel('Time (s)')
 ax2.set_ylabel('Control Signal')
 ax2.set_title('Control Signal over Time')
+ax2.set_ylim(-255, 255)
 ax2.legend()
 ax2.grid(True, alpha=0.3)
 
