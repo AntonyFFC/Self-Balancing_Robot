@@ -399,6 +399,7 @@ float PID(float y, float yzad)
 	const float K = pid_K;
 	const float _1Ti = pid_1Ti;
 	const float Td = pid_Td;
+    const float max_u = 255.0f;
 
 	static float this_u =  0.0f;
 
@@ -423,6 +424,11 @@ float PID(float y, float yzad)
 	const float r1 = K*(((Tp/2)*_1Ti)-(2*Td/Tp)-1);
 	const float r0 = K*(1+((Tp/2)*_1Ti)+(Td/Tp));
 
+    if (fabs(r0) > 1000.0f || fabs(r1) > 1000.0f || fabs(r2) > 1000.0f) {
+        ESP_LOGW(TAG, "PID Integrity Error: r0=%.2f, r1=%.2f, r2=%.2f (Skipping cycle)", r0, r1, r2);
+        return this_u;
+    }
+
 	//aktualizacja bledow:
 	e_2 = e_1;
 	e_1 = e;
@@ -431,19 +437,14 @@ float PID(float y, float yzad)
 	// float prev_u = this_u;
 	this_u = r2*e_2 + r1*e_1 + r0*e + this_u;
 	
-	// const float max_pid_output = 255.0f;
-	// if (this_u > max_pid_output) this_u = max_pid_output;
-	// if (this_u < -max_pid_output) this_u = -max_pid_output;
+	if (this_u > max_u) this_u = max_u;
+	if (this_u < -max_u) this_u = -max_u;
+
+    // float delta_u = this_u - prev_u;
 	
-	// static uint32_t last_log_time = 0;
-	// uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-	// if (now - last_log_time > 2000) {
-	// 	float delta_u = this_u - prev_u;
-	// 	ESP_LOGI(TAG, "PID: y=%.2f yzad=%.2f e=%.2f e_1=%.2f e_2=%.2f", y, yzad, e, e_1, e_2);
-	// 	ESP_LOGI(TAG, "PID: r0=%.3f r1=%.3f r2=%.3f prev_u=%.2f delta=%.2f this_u=%.2f", 
-	// 	         r0, r1, r2, prev_u, delta_u, this_u);
-	// 	last_log_time = now;
-	// }
+	// ESP_LOGI(TAG, "PID: y=%.2f yzad=%.2f e=%.2f e_1=%.2f e_2=%.2f", y, yzad, e, e_1, e_2);
+	// ESP_LOGI(TAG, "PID: r0=%.3f r1=%.3f r2=%.3f prev_u=%.2f delta=%.2f this_u=%.2f", 
+	//          r0, r1, r2, prev_u, delta_u, this_u);
 	
 	return this_u;
 }
