@@ -407,6 +407,7 @@ float PID(float y, float yzad)
 	static float e = 0.0f, e_1 = 0.0f, e_2 = 0.0f;
 
     static float last_K = 0.0f, last_1Ti = 0.0f, last_Td = 0.0f;
+    static float r2, r1, r0;
     
     if (K != last_K || _1Ti != last_1Ti || Td != last_Td || request_pid_reset) {
         request_pid_reset = false;
@@ -417,12 +418,13 @@ float PID(float y, float yzad)
         last_K = K;
         last_1Ti = _1Ti;
         last_Td = Td;
+        r2 = (K*Td)/Tp;
+        r1 = K*(((Tp/2)*_1Ti)-(2*Td/Tp)-1);
+        r0 = K*(1+((Tp/2)*_1Ti)+(Td/Tp));
         ESP_LOGI(TAG, "PID controller reset due to parameter change");
     }
 
-	const float r2 = (K*Td)/Tp;
-	const float r1 = K*(((Tp/2)*_1Ti)-(2*Td/Tp)-1);
-	const float r0 = K*(1+((Tp/2)*_1Ti)+(Td/Tp));
+	
 
     if (fabs(r0) > 1000.0f || fabs(r1) > 1000.0f || fabs(r2) > 1000.0f) {
         ESP_LOGW(TAG, "PID Integrity Error: r0=%.2f, r1=%.2f, r2=%.2f (Skipping cycle)", r0, r1, r2);
