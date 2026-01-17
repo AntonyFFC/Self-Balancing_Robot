@@ -424,13 +424,6 @@ float PID(float y, float yzad)
         ESP_LOGI(TAG, "PID controller reset due to parameter change");
     }
 
-	
-
-    if (fabs(r0) > 1000.0f || fabs(r1) > 1000.0f || fabs(r2) > 1000.0f) {
-        ESP_LOGW(TAG, "PID Integrity Error: r0=%.2f, r1=%.2f, r2=%.2f (Skipping cycle)", r0, r1, r2);
-        return this_u;
-    }
-
 	//aktualizacja bledow:
 	e_2 = e_1;
 	e_1 = e;
