@@ -2,38 +2,85 @@ clear; clc; close all;
 
 filename = 'csv/pid_data_share.csv';
 dt = 0.100;
+
+% Time Window Settings (Seconds relative to the END of the data)
+% Example: -60 to -15 means "start 60s before the end, stop 15s before the end"
+% To see the very last 60 seconds, use: window_start_offset = -60; window_end_offset = 0;
+window_start_offset = -20.5; 
+window_end_offset = -0.5;   
+
+x_tick_step = 0.5;   % X-axis label every 2 seconds
+y_pitch_step = 5;  % Pitch Y-axis label every 5 degrees
+y_ctrl_step = 50;  % Control Y-axis label every 50 units
+
+
 try
     data = readmatrix(filename);
 catch
-    error('File not found! Make sure "%s" is in the current MATLAB folder.', filename);
+    error('File not found', filename);
 end
 
-time = data(:, 1);
-pitch = data(:, 2);
-set_pitch = data(:, 3);
+% Extract raw columns
+raw_pitch = data(:, 2);
+raw_set_pitch = data(:, 3);
+raw_control = data(:, 4);
 
-num_samples = length(pitch);
-t = 0 : dt : (num_samples - 1) * dt;
+% Generate full time vector
+num_samples = length(raw_pitch);
+full_t = 0 : dt : (num_samples - 1) * dt;
 
-% if max(t) > 1000
-%     t = (t - t(1)) / 1000.0;
-% end
+% Calculate the cutoff times
+total_duration = full_t(end);
+t_start = max(0, total_duration + window_start_offset);
+t_end   = total_duration + window_end_offset;
 
-figure('Name', 'Robot Balancing Performance', 'Color', 'w');
+% Create the mask for the desired time window
+mask = (full_t >= t_start) & (full_t <= t_end);
 
-plot(t, pitch, 'b-', 'LineWidth', 1.5, 'DisplayName', 'Actual Pitch'); 
+t_sliced = full_t(mask);
+t_sliced = t_sliced - t_sliced(1);
+pitch_sliced = raw_pitch(mask);
+set_pitch_sliced = raw_set_pitch(mask);
+control_sliced = raw_control(mask);
+
+figure('Name', 'Robot Analysis', 'Color', 'w', 'Position', [100, 100, 1000, 800]);
+
+subplot(2, 1, 1);
+plot(t_sliced, pitch_sliced, 'b-', 'LineWidth', 1.5, 'DisplayName', 'Actual Pitch'); 
 hold on;
+plot(t_sliced, set_pitch_sliced, 'r--', 'LineWidth', 2.0, 'DisplayName', 'Set Pitch');
+hold off;
 
-plot(t, set_pitch, 'r--', 'LineWidth', 2.0, 'DisplayName', 'Set Pitch (Target)');
-
-title('Self-Balancing Robot: Pitch Response');
-xlabel('Time (seconds)');
+title(['Pitch Response (' filename ')']);
 ylabel('Angle (degrees)');
 legend('Location', 'best');
-grid on;
-grid minor;
-xlim([0 max(t)]);
+grid on; grid minor;
 
-yline(0, 'k-', 'Alpha', 0.3, 'HandleVisibility', 'off'); 
+xlim([t_sliced(1), t_sliced(end)]);
+ylim([150, 200]);
+xticks(t_sliced(1) : x_tick_step : t_sliced(end));
+yticks(150 : y_pitch_step : 200);
 
+subplot(2, 1, 2);
+plot(t_sliced, control_sliced, 'g-', 'LineWidth', 1.0, 'DisplayName', 'Control Signal');
+hold on;
+yline(0, 'k-', 'Alpha', 0.3, 'HandleVisibility', 'off');
 hold off;
+
+title('Control Signal Output');
+xlabel('Time (seconds)');
+ylabel('Control Signal');
+legend('Location', 'best');
+grid on; grid minor;
+xlim([t_sliced(1), t_sliced(end)]);
+ylim([-255, 255]);
+xticks(t_sliced(1) : x_tick_step : t_sliced(end));
+yticks(-255 : y_ctrl_step : 255);
+
+%% --- SAVE SLICED DATA ---
+[filepath, name, ext] = fileparts(filename);
+save_filename = fullfile(filepath, [name '_sliced.mat']);
+
+save(save_filename, 't_sliced', 'pitch_sliced', 'set_pitch_sliced', 'control_sliced', 'filename');
+
+fprintf('Successfully saved cut data to: %s\n', save_filename);
