@@ -1,17 +1,11 @@
 clear; clc; close all;
 
-%% --- CONFIGURATION ---
-% 1. Select the file you want to plot
 filename = 'csv/drive_sliced.mat'; 
 
-% 2. Custom Label (Optional) - Leave empty '' to use filename
-
-% 3. Visual Settings
 x_tick_step = 2;   
 y_pitch_step = 5;  
 y_ctrl_step = 50; 
 
-%% --- LOAD & PLOT ---
 if ~isfile(filename)
     error('File not found: %s', filename);
 end

@@ -1,10 +1,10 @@
 g = 9.81;       % Przyspieszenie ziemskie [m/s^2]
-m = 1.0;        % Masa wahadła (korpusu) [kg]
-l = 0.15;       % Odległość do środka masy [m]
-M = 0.5;        % Masa podstawy (kół) [kg]
+m = 0.28;        % Masa wahadła (korpusu) [kg]
+l = 0.07;       % Odległość do środka masy [m]
+M = 0.015;        % Masa podstawy (kół) [kg]
 R = 0.04;       % Promień koła [m]
 Jw = 0.0004;    % Moment bezwładności koła [kg*m^2]
-Jc = 0.01;      % Moment bezwładności korpusu [kg*m^2]
+Jc = 0.01;  
 b_x = 0.1; b_theta = 0.1;
 % b_x = 0; b_theta = 0;
 

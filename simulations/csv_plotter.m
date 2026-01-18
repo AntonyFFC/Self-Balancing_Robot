@@ -3,15 +3,12 @@ clear; clc; close all;
 filename = 'csv/pid_data_share.csv';
 dt = 0.100;
 
-% Time Window Settings (Seconds relative to the END of the data)
-% Example: -60 to -15 means "start 60s before the end, stop 15s before the end"
-% To see the very last 60 seconds, use: window_start_offset = -60; window_end_offset = 0;
 window_start_offset = -20.5; 
 window_end_offset = -0.5;   
 
-x_tick_step = 0.5;   % X-axis label every 2 seconds
-y_pitch_step = 5;  % Pitch Y-axis label every 5 degrees
-y_ctrl_step = 50;  % Control Y-axis label every 50 units
+x_tick_step = 0.5;
+y_pitch_step = 5;
+y_ctrl_step = 50;
 
 
 try
@@ -20,21 +17,17 @@ catch
     error('File not found', filename);
 end
 
-% Extract raw columns
 raw_pitch = data(:, 2);
 raw_set_pitch = data(:, 3);
 raw_control = data(:, 4);
 
-% Generate full time vector
 num_samples = length(raw_pitch);
 full_t = 0 : dt : (num_samples - 1) * dt;
 
-% Calculate the cutoff times
 total_duration = full_t(end);
 t_start = max(0, total_duration + window_start_offset);
 t_end   = total_duration + window_end_offset;
 
-% Create the mask for the desired time window
 mask = (full_t >= t_start) & (full_t <= t_end);
 
 t_sliced = full_t(mask);
@@ -77,7 +70,6 @@ ylim([-255, 255]);
 xticks(t_sliced(1) : x_tick_step : t_sliced(end));
 yticks(-255 : y_ctrl_step : 255);
 
-%% --- SAVE SLICED DATA ---
 [filepath, name, ext] = fileparts(filename);
 save_filename = fullfile(filepath, [name '_sliced.mat']);
 
