@@ -10,9 +10,10 @@ A two-wheel self-balancing robot project combining embedded systems firmware, co
 - [Hardware](#hardware)
 - [Repository Structure](#repository-structure)
 - [Firmware Variants](#firmware-variants)
-  - [STM32 (primary)](#stm32-primary)
-  - [ESP32 (WiFi)](#esp32-wifi)
-  - [Arduino IDE](#arduino-ide)
+  - [ESP32 - Arduino IDE (primary)](#esp32---arduino-ide-primary)
+  - [ESP32 - ESP-IDF](#esp32---esp-idf)
+  - [STM32](#stm32)
+  - [Arduino IDE (original)](#arduino-ide-original)
 - [Control Algorithm](#control-algorithm)
 - [Mobile App](#mobile-app)
 - [Visualisation Tools](#visualisation-tools)
@@ -25,7 +26,7 @@ A two-wheel self-balancing robot project combining embedded systems firmware, co
 
 ## Overview
 
-The robot maintains vertical balance on two wheels using a real-time PID control loop running at 100 Hz. An MPU6050 IMU provides pitch-angle feedback via a complementary filter. The controller outputs PWM signals to an L298N dual H-bridge motor driver. Wireless communication is handled by either an nRF24L01+ radio module (STM32 variant) or built-in WiFi (ESP32 variant).
+The robot maintains vertical balance on two wheels using a real-time PID control loop running at 100 Hz. An MPU6050 IMU provides pitch-angle feedback via its built-in DMP. The controller outputs PWM signals to an L298N dual H-bridge motor driver. The primary firmware runs on an **ESP32** microcontroller and uses built-in WiFi for real-time telemetry and remote PID tuning.
 
 ---
 
@@ -33,15 +34,11 @@ The robot maintains vertical balance on two wheels using a real-time PID control
 
 | Component | Details |
 |---|---|
-| **Microcontroller** | STM32F103 (primary) · ESP32 (alternative) |
-| **IMU** | MPU6050 – 6-axis accelerometer & gyroscope (I²C) |
+| **Microcontroller** | ESP32 dual-core (primary) · STM32F103 (alternative) |
+| **IMU** | MPU6050 – 6-axis accelerometer & gyroscope (I²C, DMP firmware) |
 | **Motor Driver** | L298N dual-channel H-bridge |
-| **Wireless** | nRF24L01+ 2.4 GHz RF module (STM32) · Built-in WiFi (ESP32) |
+| **Wireless** | Built-in WiFi (ESP32) · nRF24L01+ 2.4 GHz RF module (STM32) |
 | **Motors** | DC geared motors with PWM speed control |
-
-### STM32 Pinout
-
-![STM32 Nucleo F103RB pinout](Pictures/stm32nucleoF103RB_pinout.png)
 
 ### Chassis
 
@@ -53,10 +50,10 @@ The robot maintains vertical balance on two wheels using a real-time PID control
 
 ```
 SelfBalancing-Robot/
-├── stm32_s-b_r/                   # STM32F1 firmware (primary, CubeIDE)
+├── esp32_s-b_r_fromArIDE/         # ESP32 firmware - Arduino IDE style (primary)
+├── esp32_s-b_r/                   # ESP32 firmware - ESP-IDF / CMake
+├── stm32_s-b_r/                   # STM32F1 firmware (CubeIDE)
 ├── stm32_s-b_r_t/                 # STM32F1 alternative / test build
-├── esp32_s-b_r/                   # ESP32 firmware (ESP-IDF / CMake)
-├── esp32_s-b_r_fromArIDE/         # ESP32 firmware (Arduino IDE style)
 ├── self-balancing-robot_arduinoIDE/# Original Arduino IDE version
 ├── robot_control_app/             # Flutter cross-platform mobile app
 ├── Python_Plotting/               # Real-time UDP data visualisation
@@ -72,29 +69,52 @@ SelfBalancing-Robot/
 
 ## Firmware Variants
 
-### STM32 (primary)
+### ESP32 - Arduino IDE (primary)
 
-Located in `stm32_s-b_r/`. Built with STM32CubeIDE.
+Located in `esp32_s-b_r_fromArIDE/`. This is the main firmware used in the project, built with the ESP-IDF toolchain (structured as an Arduino-IDE-friendly project).
 
-- **Control loop:** TIM3 interrupt at 100 Hz (10 ms period)
-- **Sensor:** MPU6050 via I²C
-- **Wireless:** nRF24L01+ via SPI – 4-byte payload (servo + motor ADC values)
-- **Motor output:** PWM via TIM1 channels, with deadband compensation (22% minimum duty cycle)
+**GPIO pin assignments:**
 
-**Build:** Open `stm32_s-b_r/` as an STM32CubeIDE project and build with the standard toolchain.
+| Function | GPIO |
+|---|---|
+| I²C SDA (MPU6050) | 21 |
+| I²C SCL (MPU6050) | 22 |
+| MPU6050 DMP interrupt | 4 |
+| Motor Left – Forward | 33 |
+| Motor Left – Backward | 25 |
+| Motor Right – Forward | 26 |
+| Motor Right – Backward | 27 |
+
+**Key features:**
+- **Sensor:** MPU6050 with DMP firmware (42-byte FIFO packets, ~100 Hz pitch output)
+- **Control loop:** `Balance_Control_task` at 10 ms (100 Hz), priority 10, pinned to core 1
+- **Motor output:** LEDC PWM at 500 Hz, 14-bit resolution, with deadband compensation
+- **WiFi:** Access-point mode (SSID `SBR_AP`, password `sbrpassword`)
+- **Telemetry TX:** UDP port **7777** – `PITCH,SETPITCH,CONTROL_SIGNAL\n`
+- **Command RX:** UDP port **7778** – live PID & movement commands
+- **Startup safety:** waits for pitch to stabilise within ±3° of upright for 600 ms before enabling motors
+
+**Build & flash:**
+```bash
+cd esp32_s-b_r_fromArIDE
+idf.py set-target esp32
+idf.py build
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+**Live PID tuning via UDP (port 7778):**
+```
+PID:Kp=9.0,1/Ti=0.0,Td=0.0,UPRIGHT=180.0,MIN_U=0.0
+MOVE:FORWARD | BACKWARD | LEFT | RIGHT | STOP
+```
 
 ---
 
-### ESP32 (WiFi)
+### ESP32 - ESP-IDF
 
-Located in `esp32_s-b_r/` (ESP-IDF) and `esp32_s-b_r_fromArIDE/` (Arduino IDE style).
+Located in `esp32_s-b_r/`. A more compact, monolithic implementation using the ESP-IDF CMake build system.
 
-- **Sensor:** MPU6050/MPU6500 via I²C
-- **Telemetry TX:** UDP port **7777** – `PITCH,SETPITCH,CONTROL_SIGNAL\n`
-- **Command RX:** UDP port **7778** – live PID parameter updates (`P=2.5,I=0.001,D=0.0\n`)
-- **FreeRTOS** task architecture
-
-**Build (ESP-IDF):**
+**Build:**
 ```bash
 cd esp32_s-b_r
 idf.py set-target esp32
@@ -104,7 +124,20 @@ idf.py flash monitor
 
 ---
 
-### Arduino IDE
+### STM32
+
+Located in `stm32_s-b_r/`. Built with STM32CubeIDE.
+
+- **Control loop:** TIM3 interrupt at 100 Hz (10 ms period)
+- **Sensor:** MPU6050 via I²C
+- **Wireless:** nRF24L01+ via SPI – 4-byte payload (servo + motor ADC values)
+- **Motor output:** PWM via TIM1 channels, with deadband compensation
+
+**Build:** Open `stm32_s-b_r/` as an STM32CubeIDE project and build with the standard toolchain.
+
+---
+
+### Arduino IDE (original)
 
 Located in `self-balancing-robot_arduinoIDE/`. Open the `.ino` sketch in the Arduino IDE and flash to a compatible board.
 
@@ -112,12 +145,14 @@ Located in `self-balancing-robot_arduinoIDE/`. Open the `.ino` sketch in the Ard
 
 ## Control Algorithm
 
-### Pitch Estimation – Complementary Filter
+### Pitch Estimation
 
+The primary ESP32 firmware uses the **MPU6050 DMP** (Digital Motion Processor) to obtain pitch angle directly from the sensor's on-chip quaternion engine (~100 Hz, 42-byte FIFO packets). The pitch is expressed as 0–360°, where 180° represents the upright balanced position.
+
+The STM32 variant uses a software **complementary filter**:
 ```
 pitch = 0.95 × (pitch + gx × dt) + 0.05 × acc_pitch
 ```
-
 - 95% weight on gyroscope integration (high-frequency accuracy)
 - 5% weight on accelerometer angle (long-term drift correction)
 - Accelerometer pitch: `atan2(ax, sqrt(ay² + az²))`
@@ -221,9 +256,16 @@ Located in `CAD/`. Designed in FreeCAD.
    cd SelfBalancing-Robot
    ```
 
-2. **Choose a firmware variant** – see [Firmware Variants](#firmware-variants) above.
+2. **Flash the primary firmware** (ESP32 – Arduino IDE variant):
+   ```bash
+   cd esp32_s-b_r_fromArIDE
+   idf.py set-target esp32
+   idf.py build
+   idf.py -p /dev/ttyUSB0 flash monitor
+   ```
+   See [Firmware Variants](#firmware-variants) for alternative builds.
 
-3. **Flash the firmware** to your microcontroller.
+3. **Connect to the robot's WiFi access point** (`SBR_AP` / `sbrpassword`).
 
 4. **Run the mobile app or Python plotter** to monitor and tune the robot wirelessly.
 
